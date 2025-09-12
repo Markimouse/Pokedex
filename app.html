@@ -17,15 +17,22 @@
 
         // Global variables provided by the Canvas environment
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
+        // Your web app's Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyAhnSMCnVP1aB3i76Sbx1AIXKdzpva_428",
+            authDomain: "pokedex-5df8e.firebaseapp.com",
+            projectId: "pokedex-5df8e",
+            storageBucket: "pokedex-5df8e.firebasestorage.app",
+            messagingSenderId: "93348869700",
+            appId: "1:93348869700:web:d0669fbd08ea16c3aeee11",
+            measurementId: "G-X3GD2XY8VC"
+        };
+        const initialAuthToken = null; // Set to null for local use.
 
-        // Initialize Firebase
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
-
-        // Define a variable to hold the current user ID
+        let app;
+        let db;
+        let auth;
         let userId = null;
         let pokemonData = [];
         let collectedCards = {};
@@ -57,31 +64,46 @@
             }, 5000);
         }
 
-        // Handle authentication state changes
-        onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                userId = user.uid;
-                document.getElementById('user-id-display').textContent = `User ID: ${userId}`;
-                document.getElementById('loading-indicator').classList.add('hidden');
-                document.getElementById('app-container').classList.remove('hidden');
+        // Initialize Firebase and set up authentication
+        function initializeAppAndAuth() {
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
                 
-                // Initialize the app after successful authentication
-                await fetchPokemonData();
-                setupRealtimeListener();
-            } else {
-                // Sign in with the custom token if available, otherwise sign in anonymously
-                try {
-                    if (initialAuthToken) {
-                        await signInWithCustomToken(auth, initialAuthToken);
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        document.getElementById('user-id-display').textContent = `User ID: ${userId}`;
+                        document.getElementById('loading-indicator').classList.add('hidden');
+                        document.getElementById('app-container').classList.remove('hidden');
+                        
+                        await fetchPokemonData();
+                        setupRealtimeListener();
                     } else {
-                        await signInAnonymously(auth);
+                        // If no user, and we have an initial token, sign in with it.
+                        // Otherwise, sign in anonymously for local testing.
+                        try {
+                            if (initialAuthToken) {
+                                await signInWithCustomToken(auth, initialAuthToken);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+                        } catch (error) {
+                            console.error("Authentication failed:", error);
+                            if (error.code === 'auth/configuration-not-found') {
+                                showMessage("Firebase Auth is not enabled for this project. Please go to the Firebase Console, navigate to 'Authentication', and enable the 'Anonymous' sign-in method.", 'error');
+                            } else {
+                                showMessage("Failed to authenticate. Please try again.", 'error');
+                            }
+                        }
                     }
-                } catch (error) {
-                    console.error("Authentication failed:", error);
-                    showMessage("Failed to authenticate. Please try again.", 'error');
-                }
+                });
+            } catch (error) {
+                console.error("Firebase initialization failed:", error);
+                document.getElementById('loading-text').textContent = "Firebase initialization failed. Check your console for details.";
             }
-        });
+        }
 
         // Fetch all Pokémon data and generation data from PokeAPI
         async function fetchPokemonData() {
@@ -297,6 +319,9 @@
             searchInput.addEventListener('input', renderPokemonList);
             rarityFilter.addEventListener('change', renderPokemonList);
             generationFilter.addEventListener('change', renderPokemonList);
+            
+            // Call the initialization function when the DOM is loaded
+            initializeAppAndAuth();
         });
 
     </script>
