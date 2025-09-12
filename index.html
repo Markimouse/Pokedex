@@ -18,7 +18,17 @@
         // Global variables provided by the Canvas environment
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        
+        // Your web app's Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyAhnSMCnVP1aB3i76Sbx1AIXKdzpva_428",
+            authDomain: "pokedex-5df8e.firebaseapp.com",
+            projectId: "pokedex-5df8e",
+            storageBucket: "pokedex-5df8e.firebasestorage.app",
+            messagingSenderId: "93348869700",
+            appId: "1:93348869700:web:d0669fbd08ea16c3aeee11",
+            measurementId: "G-X3GD2XY8VC"
+        };
 
         let app;
         let db;
