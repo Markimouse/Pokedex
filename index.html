@@ -414,7 +414,7 @@
                             const isSelected = currentRarities.includes(rarity);
                             const selectedClass = isSelected ? `${rarityColors[rarity]} text-white` : 'bg-gray-200 text-gray-800';
                             const disabledAttr = isViewingSharedPokedex ? 'disabled' : '';
-                            return `<button data-pokemon-id="${pokemon.id}" data-rarity="${rarity}" class="rarity-btn px-2 py-1 text-xs font-medium rounded-full transition-colors duration-200 ${selectedClass}" ${disabledAttr}>${symbol} ${rarity}</button>`;
+                            return `<button data-pokemon-id="${pokemon.id}" data-rarity="${rarity}" class="rarity-btn px-2 py-1 text-xs font-medium rounded-full transition-colors duration-200 ${selectedClass}" ${disabledAttr}>${raritySymbols[rarity]} ${rarity}</button>`;
                         }).join('')}
                     </div>
                 `;
@@ -454,23 +454,24 @@
             if (generationFilter) generationFilter.addEventListener('change', renderPokemonList);
             
             // Login/Signup form handlers
-            const loginForm = document.getElementById('login-form');
-            if (loginForm) {
-                loginForm.addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    const email = document.getElementById('email').value;
-                    const password = document.getElementById('password').value;
-                    handleSignIn(email, password);
-                });
-            }
-
+            const loginForm = document.getElementById('login-form-submit');
             const signUpForm = document.getElementById('signup-form');
+            
             if (signUpForm) {
                 signUpForm.addEventListener('submit', (e) => {
                     e.preventDefault();
                     const email = document.getElementById('email').value;
                     const password = document.getElementById('password').value;
                     handleSignUp(email, password);
+                });
+            }
+
+            if (loginForm) {
+                loginForm.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const email = document.getElementById('email').value;
+                    const password = document.getElementById('password').value;
+                    handleSignIn(email, password);
                 });
             }
 
