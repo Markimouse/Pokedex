@@ -55,6 +55,21 @@
             'Gold': '★'
         };
 
+        const rarityColors = {
+            'Common': 'bg-gray-400',
+            'Uncommon': 'bg-green-400',
+            'Rare': 'bg-yellow-400',
+            'Double Rare': 'bg-orange-400',
+            'Holo Rare': 'bg-yellow-500',
+            'Reverse Holo': 'bg-purple-400',
+            'Illustration Rare': 'bg-pink-400',
+            'Special Illustration Rare': 'bg-rose-500',
+            'Hyper Rare': 'bg-red-600',
+            'Ultra Rare': 'bg-blue-600',
+            'Secret Rare': 'bg-slate-700',
+            'Gold': 'bg-amber-500'
+        };
+
         // Function to create a message box instead of using alert()
         function showMessage(message, type = 'info') {
             const container = document.getElementById('message-container');
@@ -261,10 +276,23 @@
             filteredPokemon.forEach(pokemon => {
                 const currentRarities = collectedCards[pokemon.id] || [];
                 const isCollected = currentRarities.length > 0;
-                const cardCollectedClass = isCollected ? 'border-green-400 bg-green-50' : 'border-gray-200';
+                
+                let mostRareSelectedColor = 'border-gray-200';
+                if (isCollected) {
+                    let maxRarityIndex = -1;
+                    let mostRareRarity = null;
+                    currentRarities.forEach(r => {
+                        const rarityIndex = RARITIES.indexOf(r);
+                        if (rarityIndex > maxRarityIndex) {
+                            maxRarityIndex = rarityIndex;
+                            mostRareRarity = r;
+                        }
+                    });
+                    mostRareSelectedColor = `${rarityColors[mostRareRarity]} border-4`;
+                }
                 
                 const card = document.createElement('div');
-                card.className = `pokemon-card p-4 bg-white rounded-lg shadow-md transition-all duration-300 transform hover:scale-105 ${cardCollectedClass}`;
+                card.className = `pokemon-card p-4 bg-white rounded-lg shadow-md transition-all duration-300 transform hover:scale-105 ${mostRareSelectedColor}`;
                 
                 card.innerHTML = `
                     <div class="flex items-center justify-between cursor-pointer" data-pokemon-id="${pokemon.id}">
@@ -280,7 +308,7 @@
                     <div id="rarity-container-${pokemon.id}" class="mt-4 w-full grid grid-cols-2 gap-2 hidden">
                         ${RARITIES.map(rarity => {
                             const isSelected = currentRarities.includes(rarity);
-                            const selectedClass = isSelected ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-800';
+                            const selectedClass = isSelected ? `${rarityColors[rarity]} text-white` : 'bg-gray-200 text-gray-800';
                             const symbol = raritySymbols[rarity];
                             return `<button data-pokemon-id="${pokemon.id}" data-rarity="${rarity}" class="rarity-btn px-2 py-1 text-xs font-medium rounded-full transition-colors duration-200 ${selectedClass}">${symbol} ${rarity}</button>`;
                         }).join('')}
@@ -324,6 +352,27 @@
             initializeAppAndAuth();
         });
 
+        // Function to render the color key
+        function renderColorKey() {
+            const keyContainer = document.getElementById('color-key');
+            if (!keyContainer) return;
+            keyContainer.innerHTML = '';
+            RARITIES.forEach(rarity => {
+                const color = rarityColors[rarity];
+                const symbol = raritySymbols[rarity];
+                const keyItem = document.createElement('div');
+                keyItem.className = `flex items-center space-x-2 p-2 rounded-full ${color} text-white`;
+                keyItem.innerHTML = `
+                    <span class="text-sm font-semibold">${symbol}</span>
+                    <span class="text-xs font-medium">${rarity}</span>
+                `;
+                keyContainer.appendChild(keyItem);
+            });
+        }
+        
+        // Call the renderColorKey function after the DOM is loaded
+        document.addEventListener('DOMContentLoaded', renderColorKey);
+
     </script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
@@ -364,6 +413,14 @@
             </select>
         </div>
         
+        <!-- Rarity Color Key -->
+        <div class="mb-6 p-4 bg-white rounded-lg shadow-sm">
+            <h2 class="text-lg font-semibold text-gray-800 mb-4">Rarity Color Key</h2>
+            <div id="color-key" class="flex flex-wrap items-center justify-center gap-2">
+                <!-- Key items will be dynamically generated here -->
+            </div>
+        </div>
+
         <div id="pokemon-list" class="pokemon-list">
             <!-- Pokémon cards will be rendered here by JavaScript -->
         </div>
