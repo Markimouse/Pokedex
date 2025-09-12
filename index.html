@@ -8,8 +8,8 @@
     <script type="module">
         // Firebase imports
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 
         // Set Firebase log level to debug for better console output
@@ -17,18 +17,8 @@
 
         // Global variables provided by the Canvas environment
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        
-        // Your web app's Firebase configuration
-        const firebaseConfig = {
-            apiKey: "AIzaSyAhnSMCnVP1aB3i76Sbx1AIXKdzpva_428",
-            authDomain: "pokedex-5df8e.firebaseapp.com",
-            projectId: "pokedex-5df8e",
-            storageBucket: "pokedex-5df8e.firebasestorage.app",
-            messagingSenderId: "93348869700",
-            appId: "1:93348869700:web:d0669fbd08ea16c3aeee11",
-            measurementId: "G-X3GD2XY8VC"
-        };
-        const initialAuthToken = null; // Set to null for local use.
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
 
         let app;
         let db;
@@ -37,6 +27,8 @@
         let pokemonData = [];
         let collectedCards = {};
         let generationsData = [];
+        let isViewingSharedPokedex = false;
+        let shareableUrl = '';
 
         // Rarity options and symbols
         const RARITIES = ['Common', 'Uncommon', 'Rare', 'Double Rare', 'Holo Rare', 'Reverse Holo', 'Illustration Rare', 'Special Illustration Rare', 'Hyper Rare', 'Ultra Rare', 'Secret Rare', 'Gold'];
@@ -78,6 +70,14 @@
                 container.innerHTML = '';
             }, 5000);
         }
+        
+        // Function to show a modal with a shareable URL
+        function showShareModal() {
+            const shareModal = document.getElementById('share-modal');
+            const shareUrlInput = document.getElementById('share-url-input');
+            shareUrlInput.value = shareableUrl;
+            shareModal.classList.remove('hidden');
+        }
 
         // Initialize Firebase and set up authentication
         function initializeAppAndAuth() {
@@ -86,37 +86,85 @@
                 db = getFirestore(app);
                 auth = getAuth(app);
                 
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        userId = user.uid;
-                        document.getElementById('user-id-display').textContent = `User ID: ${userId}`;
-                        document.getElementById('loading-indicator').classList.add('hidden');
-                        document.getElementById('app-container').classList.remove('hidden');
-                        
-                        await fetchPokemonData();
+                const urlParams = new URLSearchParams(window.location.search);
+                const shareUserId = urlParams.get('userId');
+
+                if (shareUserId) {
+                    isViewingSharedPokedex = true;
+                    userId = shareUserId;
+                    document.getElementById('user-id-display').textContent = `Viewing Shared Pokedex from User: ${userId}`;
+                    document.getElementById('loading-indicator').classList.add('hidden');
+                    document.getElementById('app-container').classList.remove('hidden');
+                    document.getElementById('auth-container').classList.add('hidden');
+                    document.getElementById('share-btn').classList.add('hidden');
+                    document.getElementById('logout-btn').classList.add('hidden');
+
+                    fetchPokemonData().then(() => {
                         setupRealtimeListener();
-                    } else {
-                        // If no user, and we have an initial token, sign in with it.
-                        // Otherwise, sign in anonymously for local testing.
-                        try {
-                            if (initialAuthToken) {
-                                await signInWithCustomToken(auth, initialAuthToken);
-                            } else {
-                                await signInAnonymously(auth);
-                            }
-                        } catch (error) {
-                            console.error("Authentication failed:", error);
-                            if (error.code === 'auth/configuration-not-found') {
-                                showMessage("Firebase Auth is not enabled for this project. Please go to the Firebase Console, navigate to 'Authentication', and enable the 'Anonymous' sign-in method.", 'error');
-                            } else {
-                                showMessage("Failed to authenticate. Please try again.", 'error');
-                            }
+                    });
+                } else {
+                    onAuthStateChanged(auth, async (user) => {
+                        if (user) {
+                            userId = user.uid;
+                            document.getElementById('user-id-display').textContent = `User ID: ${userId}`;
+                            document.getElementById('loading-indicator').classList.add('hidden');
+                            document.getElementById('app-container').classList.remove('hidden');
+                            document.getElementById('auth-container').classList.add('hidden');
+                            document.getElementById('logout-btn').classList.remove('hidden');
+                            document.getElementById('share-btn').classList.remove('hidden');
+
+                            await fetchPokemonData();
+                            setupRealtimeListener();
+                        } else {
+                            userId = null;
+                            document.getElementById('user-id-display').textContent = 'Please log in to save your progress.';
+                            document.getElementById('loading-indicator').classList.add('hidden');
+                            document.getElementById('app-container').classList.add('hidden');
+                            document.getElementById('auth-container').classList.remove('hidden');
+                            document.getElementById('logout-btn').classList.add('hidden');
+                            document.getElementById('share-btn').classList.add('hidden');
                         }
-                    }
-                });
+                    });
+                }
             } catch (error) {
                 console.error("Firebase initialization failed:", error);
                 document.getElementById('loading-text').textContent = "Firebase initialization failed. Check your console for details.";
+            }
+        }
+
+        // Handle user signup
+        async function handleSignUp(email, password) {
+            try {
+                await createUserWithEmailAndPassword(auth, email, password);
+                showMessage("Account created successfully! You are now logged in.");
+                // The onAuthStateChanged listener will handle the UI update.
+            } catch (error) {
+                console.error("Signup failed:", error);
+                showMessage(error.message, 'error');
+            }
+        }
+
+        // Handle user login
+        async function handleSignIn(email, password) {
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+                showMessage("Logged in successfully!");
+                // The onAuthStateChanged listener will handle the UI update.
+            } catch (error) {
+                console.error("Login failed:", error);
+                showMessage(error.message, 'error');
+            }
+        }
+
+        // Handle user logout
+        async function handleSignOut() {
+            try {
+                await signOut(auth);
+                showMessage("Logged out successfully.");
+                // The onAuthStateChanged listener will handle the UI update.
+            } catch (error) {
+                console.error("Logout failed:", error);
+                showMessage("Failed to log out.", 'error');
             }
         }
 
@@ -188,35 +236,55 @@
 
         // Set up the real-time Firestore listener for the user's collection
         function setupRealtimeListener() {
-            const collectionPath = `artifacts/${appId}/users/${userId}/pokemon_cards`;
-            const q = collection(db, collectionPath);
-            onSnapshot(q, (snapshot) => {
-                collectedCards = {};
-                snapshot.forEach(doc => {
-                    const card = doc.data();
-                    if (card.rarities) {
-                        // Store the array of rarities
-                        collectedCards[card.id] = card.rarities;
-                    }
-                });
-                renderPokemonList();
-            }, (error) => {
-                console.error("Error listening to Firestore:", error);
-                showMessage("Failed to load your collection. Check your connection.", 'error');
-            });
-        }
+            if (!userId) {
+                return;
+            }
 
+            let collectionRef;
+            if (isViewingSharedPokedex) {
+                collectionRef = doc(db, `artifacts/${appId}/public/data/shared_pokedex/${userId}`);
+                onSnapshot(collectionRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        collectedCards = docSnap.data().cards || {};
+                    } else {
+                        collectedCards = {};
+                    }
+                    renderPokemonList();
+                }, (error) => {
+                    console.error("Error listening to Firestore:", error);
+                    showMessage("Failed to load the shared collection.", 'error');
+                });
+
+            } else {
+                collectionRef = collection(db, `artifacts/${appId}/users/${userId}/pokemon_cards`);
+                onSnapshot(collectionRef, (snapshot) => {
+                    collectedCards = {};
+                    snapshot.forEach(doc => {
+                        const card = doc.data();
+                        if (card.rarities) {
+                            collectedCards[card.id] = card.rarities;
+                        }
+                    });
+                    renderPokemonList();
+                }, (error) => {
+                    console.error("Error listening to Firestore:", error);
+                    showMessage("Failed to load your collection. Check your connection.", 'error');
+                });
+            }
+        }
+        
         // Handle rarity button clicks and save to Firestore
         async function handleRarityClick(pokemonId, toggledRarity) {
-            if (!userId) {
-                showMessage('Please wait for authentication to complete.', 'error');
+            const currentAuthenticatedUserId = auth.currentUser?.uid;
+            if (!currentAuthenticatedUserId) {
+                showMessage('Please log in to save your collection.', 'error');
                 return;
             }
 
             const pokemon = pokemonData.find(p => p.id === parseInt(pokemonId));
             if (!pokemon) return;
 
-            const collectionPath = `artifacts/${appId}/users/${userId}/pokemon_cards`;
+            const collectionPath = `artifacts/${appId}/users/${currentAuthenticatedUserId}/pokemon_cards`;
             const cardRef = doc(db, collectionPath, pokemonId.toString());
 
             let currentRarities = collectedCards[pokemonId] || [];
@@ -248,6 +316,42 @@
             } catch (e) {
                 console.error("Error updating document: ", e);
                 showMessage(`Failed to update ${pokemon.name}'s rarities.`, 'error');
+            }
+        }
+
+        // Handle sharing the pokedex
+        async function handleShareClick() {
+            const currentAuthenticatedUserId = auth.currentUser?.uid;
+            if (!currentAuthenticatedUserId) {
+                showMessage('You must be logged in to share your Pokedex.', 'error');
+                return;
+            }
+
+            const privateCollectionRef = collection(db, `artifacts/${appId}/users/${currentAuthenticatedUserId}/pokemon_cards`);
+            const publicDocRef = doc(db, `artifacts/${appId}/public/data/shared_pokedex/${currentAuthenticatedUserId}`);
+            
+            try {
+                const snapshot = await getDocs(privateCollectionRef);
+                const cardsToShare = {};
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.rarities && data.rarities.length > 0) {
+                        cardsToShare[data.id] = data.rarities;
+                    }
+                });
+                
+                await setDoc(publicDocRef, {
+                    userId: currentAuthenticatedUserId,
+                    cards: cardsToShare,
+                    lastUpdated: new Date()
+                });
+
+                shareableUrl = `${window.location.origin}${window.location.pathname}?userId=${currentAuthenticatedUserId}`;
+                showShareModal();
+                showMessage("Your Pokedex is now shareable!");
+            } catch (error) {
+                console.error("Error sharing Pokedex:", error);
+                showMessage("Failed to share your Pokedex.", 'error');
             }
         }
 
@@ -309,8 +413,8 @@
                         ${RARITIES.map(rarity => {
                             const isSelected = currentRarities.includes(rarity);
                             const selectedClass = isSelected ? `${rarityColors[rarity]} text-white` : 'bg-gray-200 text-gray-800';
-                            const symbol = raritySymbols[rarity];
-                            return `<button data-pokemon-id="${pokemon.id}" data-rarity="${rarity}" class="rarity-btn px-2 py-1 text-xs font-medium rounded-full transition-colors duration-200 ${selectedClass}">${symbol} ${rarity}</button>`;
+                            const disabledAttr = isViewingSharedPokedex ? 'disabled' : '';
+                            return `<button data-pokemon-id="${pokemon.id}" data-rarity="${rarity}" class="rarity-btn px-2 py-1 text-xs font-medium rounded-full transition-colors duration-200 ${selectedClass}" ${disabledAttr}>${symbol} ${rarity}</button>`;
                         }).join('')}
                     </div>
                 `;
@@ -344,10 +448,50 @@
             const searchInput = document.getElementById('search-input');
             const rarityFilter = document.getElementById('rarity-filter');
             const generationFilter = document.getElementById('generation-filter');
-            searchInput.addEventListener('input', renderPokemonList);
-            rarityFilter.addEventListener('change', renderPokemonList);
-            generationFilter.addEventListener('change', renderPokemonList);
             
+            if (searchInput) searchInput.addEventListener('input', renderPokemonList);
+            if (rarityFilter) rarityFilter.addEventListener('change', renderPokemonList);
+            if (generationFilter) generationFilter.addEventListener('change', renderPokemonList);
+            
+            // Login/Signup form handlers
+            const loginForm = document.getElementById('login-form');
+            if (loginForm) {
+                loginForm.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const email = document.getElementById('email').value;
+                    const password = document.getElementById('password').value;
+                    handleSignIn(email, password);
+                });
+            }
+
+            const signUpForm = document.getElementById('signup-form');
+            if (signUpForm) {
+                signUpForm.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const email = document.getElementById('email').value;
+                    const password = document.getElementById('password').value;
+                    handleSignUp(email, password);
+                });
+            }
+
+            const logoutBtn = document.getElementById('logout-btn');
+            if (logoutBtn) {
+                logoutBtn.addEventListener('click', handleSignOut);
+            }
+            
+            const shareBtn = document.getElementById('share-btn');
+            if (shareBtn) {
+                shareBtn.addEventListener('click', handleShareClick);
+            }
+            
+            // Modal close button
+            const closeModalBtn = document.getElementById('close-modal');
+            if (closeModalBtn) {
+                closeModalBtn.addEventListener('click', () => {
+                    document.getElementById('share-modal').classList.add('hidden');
+                });
+            }
+
             // Call the initialization function when the DOM is loaded
             initializeAppAndAuth();
         });
@@ -394,11 +538,44 @@
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen p-4 sm:p-6 lg:p-8">
+    <div id="auth-container" class="flex items-center justify-center min-h-screen p-4">
+        <div class="w-full max-w-sm p-8 space-y-6 bg-white rounded-lg shadow-xl text-center">
+            <h2 class="text-2xl font-bold text-gray-900">Sign Up / Log In</h2>
+            <form id="signup-form" class="space-y-4">
+                <div>
+                    <input id="email" type="email" placeholder="Email address" required class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition-all duration-200">
+                </div>
+                <div>
+                    <input id="password" type="password" placeholder="Password" required class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition-all duration-200">
+                </div>
+                <div class="flex space-x-4">
+                    <button type="submit" class="w-1/2 flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        Sign Up
+                    </button>
+                    <button type="button" id="login-form-submit" class="w-1/2 flex justify-center py-3 px-4 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-200">
+                        Log In
+                    </button>
+                </div>
+            </form>
+            <p class="text-xs text-gray-500 mt-4">By signing up, you agree to the terms of service.</p>
+        </div>
+    </div>
+
     <div id="app-container" class="hidden max-w-6xl mx-auto w-full">
-        <div class="text-center mb-8">
-            <h1 class="text-4xl sm:text-5xl font-extrabold text-gray-900 mb-2">Pokedex Collector</h1>
-            <p class="text-gray-600 text-lg">Keep track of your Pokémon card collection!</p>
-            <p id="user-id-display" class="text-sm text-gray-500 mt-2 break-all"></p>
+        <div class="flex items-center justify-between mb-8">
+            <div class="flex-grow text-center">
+                <h1 class="text-4xl sm:text-5xl font-extrabold text-gray-900 mb-2">Pokedex Collector</h1>
+                <p class="text-gray-600 text-lg">Keep track of your Pokémon card collection!</p>
+                <p id="user-id-display" class="text-sm text-gray-500 mt-2 break-all"></p>
+            </div>
+            <div class="flex space-x-2">
+                <button id="share-btn" class="hidden px-4 py-2 text-sm font-medium rounded-lg text-white bg-green-500 hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-all duration-200">
+                    Share Pokedex
+                </button>
+                <button id="logout-btn" class="hidden px-4 py-2 text-sm font-medium rounded-lg text-white bg-red-500 hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-all duration-200">
+                    Log Out
+                </button>
+            </div>
         </div>
 
         <div id="message-container" class="fixed top-4 right-4 z-50"></div>
@@ -430,6 +607,20 @@
     <div id="loading-indicator" class="flex flex-col items-center justify-center min-h-screen">
         <div class="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500"></div>
         <p id="loading-text" class="mt-4 text-gray-600">Loading app...</p>
+    </div>
+    
+    <!-- Share URL Modal -->
+    <div id="share-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-50">
+        <div class="relative p-5 bg-white w-full max-w-lg rounded-lg shadow-xl text-center">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Your Shareable Pokedex URL</h3>
+            <p class="text-sm text-gray-600 mb-4">Copy this link to share your Pokedex with others. They will be able to view your collection but not edit it.</p>
+            <input id="share-url-input" type="text" readonly class="w-full px-4 py-2 mb-4 text-sm text-gray-700 bg-gray-100 rounded-lg border-2 border-gray-300">
+            <div class="flex justify-center space-x-4">
+                <button id="close-modal" class="px-4 py-2 text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    Close
+                </button>
+            </div>
+        </div>
     </div>
 
 </body>
