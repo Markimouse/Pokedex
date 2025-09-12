@@ -9,7 +9,7 @@
         // Firebase imports
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, onSnapshot, getDocs, query, where, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 
         // Set Firebase log level to debug for better console output
@@ -29,9 +29,24 @@
         let userId = null;
         let pokemonData = [];
         let collectedCards = {};
+        let generationsData = [];
 
-        // Rarity options
-        const RARITIES = ['Common', 'Uncommon', 'Rare', 'Holo Rare', 'Reverse Holo', 'Illustration Rare', 'Special Illustration Rare', 'Ultra Rare', 'Secret Rare', 'Gold'];
+        // Rarity options and symbols
+        const RARITIES = ['Common', 'Uncommon', 'Rare', 'Double Rare', 'Holo Rare', 'Reverse Holo', 'Illustration Rare', 'Special Illustration Rare', 'Hyper Rare', 'Ultra Rare', 'Secret Rare', 'Gold'];
+        const raritySymbols = {
+            'Common': '●',
+            'Uncommon': '◆',
+            'Rare': '★',
+            'Double Rare': '★★',
+            'Holo Rare': '★',
+            'Reverse Holo': '★',
+            'Illustration Rare': '★',
+            'Special Illustration Rare': '★★',
+            'Hyper Rare': '★★★',
+            'Ultra Rare': '☆☆',
+            'Secret Rare': '★',
+            'Gold': '★'
+        };
 
         // Function to create a message box instead of using alert()
         function showMessage(message, type = 'info') {
@@ -68,24 +83,69 @@
             }
         });
 
-        // Fetch Pokémon data from PokeAPI
+        // Fetch all Pokémon data and generation data from PokeAPI
         async function fetchPokemonData() {
-            document.getElementById('pokemon-list').innerHTML = `
-                <div class="col-span-1 md:col-span-2 lg:col-span-3 text-center py-10">
-                    <p class="text-gray-500 animate-pulse">Loading Pokémon...</p>
-                </div>`;
+            const loadingText = document.getElementById('loading-text');
+            loadingText.textContent = 'Loading Pokémon data... This may take a moment.';
+            document.getElementById('loading-indicator').classList.remove('hidden');
+            document.getElementById('app-container').classList.add('hidden');
+
             try {
+                // Fetch generation data first
+                const genResponse = await fetch('https://pokeapi.co/api/v2/generation/');
+                const genData = await genResponse.json();
+                generationsData = genData.results;
+                
+                // Get the last Pokemon ID for each generation
+                const genDetailsPromises = generationsData.map(gen => fetch(gen.url).then(res => res.json()));
+                const genDetails = await Promise.all(genDetailsPromises);
+                
+                // Transform generation data for easy lookup
+                generationsData = genDetails.map(gen => {
+                    const sortedPokemon = gen.pokemon_species.map(p => {
+                        const id = p.url.split('/').slice(-2, -1)[0];
+                        return parseInt(id);
+                    }).sort((a, b) => a - b);
+                    return {
+                        name: gen.name,
+                        start: sortedPokemon[0],
+                        end: sortedPokemon[sortedPokemon.length - 1]
+                    };
+                });
+
+                // Populate the generation filter dropdown
+                const genFilter = document.getElementById('generation-filter');
+                genFilter.innerHTML = `<option value="">-- All Generations --</option>` + generationsData.map(gen => {
+                    const genNumber = gen.name.split('-')[1].toUpperCase();
+                    return `<option value="${gen.name}">Generation ${genNumber} (${gen.start}-${gen.end})</option>`;
+                }).join('');
+                
+                // Populate the rarity filter dropdown
+                const rarityFilter = document.getElementById('rarity-filter');
+                rarityFilter.innerHTML = `<option value="">-- All Rarities --</option>` + RARITIES.map(rarity => `<option value="${rarity}">${raritySymbols[rarity]} ${rarity}</option>`).join('');
+
+                // Fetch the list of all Pokémon (1025 Pokémon total)
                 const response = await fetch('https://pokeapi.co/api/v2/pokemon?limit=1025');
                 const data = await response.json();
-                pokemonData = data.results.map((pokemon, index) => ({
-                    id: index + 1,
-                    name: pokemon.name,
-                    imageUrl: `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${index + 1}.png`
+                
+                // Fetch details for each Pokémon concurrently
+                const pokemonDetailsPromises = data.results.map(pokemon => fetch(pokemon.url).then(res => res.json()));
+                const allDetails = await Promise.all(pokemonDetailsPromises);
+
+                pokemonData = allDetails.map(detail => ({
+                    id: detail.id,
+                    name: detail.name,
+                    imageUrl: detail.sprites.front_default,
+                    types: detail.types.map(t => t.type.name),
                 }));
+                
+                document.getElementById('loading-indicator').classList.add('hidden');
+                document.getElementById('app-container').classList.remove('hidden');
+                
                 renderPokemonList();
             } catch (error) {
                 console.error("Error fetching Pokémon data:", error);
-                document.getElementById('pokemon-list').innerHTML = `<p class="text-red-500 text-center py-10">Failed to load Pokémon data.</p>`;
+                loadingText.textContent = 'Failed to load Pokémon data.';
             }
         }
 
@@ -97,7 +157,10 @@
                 collectedCards = {};
                 snapshot.forEach(doc => {
                     const card = doc.data();
-                    collectedCards[card.id] = card.rarity;
+                    if (card.rarities) {
+                        // Store the array of rarities
+                        collectedCards[card.id] = card.rarities;
+                    }
                 });
                 renderPokemonList();
             }, (error) => {
@@ -106,8 +169,8 @@
             });
         }
 
-        // Handle card rarity selection and save to Firestore
-        async function handleRarityChange(pokemonId, rarity) {
+        // Handle rarity button clicks and save to Firestore
+        async function handleRarityClick(pokemonId, toggledRarity) {
             if (!userId) {
                 showMessage('Please wait for authentication to complete.', 'error');
                 return;
@@ -119,78 +182,121 @@
             const collectionPath = `artifacts/${appId}/users/${userId}/pokemon_cards`;
             const cardRef = doc(db, collectionPath, pokemonId.toString());
 
-            if (rarity === '') {
-                // Rarity deselected, remove from collection
-                try {
-                    await setDoc(cardRef, { collected: false });
-                    showMessage(`Removed ${pokemon.name} from your collection.`, 'info');
-                } catch (e) {
-                    console.error("Error removing document: ", e);
-                    showMessage(`Failed to remove ${pokemon.name}.`, 'error');
-                }
+            let currentRarities = collectedCards[pokemonId] || [];
+            let newRarities;
+
+            // Check if the toggled rarity is already in the array
+            if (currentRarities.includes(toggledRarity)) {
+                // Remove the rarity from the array
+                newRarities = currentRarities.filter(r => r !== toggledRarity);
+                showMessage(`Removed ${toggledRarity} for ${pokemon.name}.`, 'info');
             } else {
-                // Rarity selected, save to collection
-                try {
+                // Add the new rarity to the array
+                newRarities = [...currentRarities, toggledRarity];
+                showMessage(`Added ${toggledRarity} for ${pokemon.name}.`, 'info');
+            }
+
+            try {
+                if (newRarities.length === 0) {
+                    // If no rarities are selected, remove the document
+                    await setDoc(cardRef, { collected: false });
+                } else {
+                    // Otherwise, update the document with the new rarities array
                     await setDoc(cardRef, {
                         id: pokemon.id,
                         name: pokemon.name,
-                        rarity: rarity,
+                        rarities: newRarities,
                     }, { merge: true });
-                    showMessage(`Saved ${pokemon.name} as ${rarity}.`, 'info');
-                } catch (e) {
-                    console.error("Error adding/updating document: ", e);
-                    showMessage(`Failed to save ${pokemon.name}.`, 'error');
                 }
+            } catch (e) {
+                console.error("Error updating document: ", e);
+                showMessage(`Failed to update ${pokemon.name}'s rarities.`, 'error');
             }
         }
 
-        // Render the Pokémon list to the UI
+        // Render the Pokémon list to the UI with filters
         function renderPokemonList() {
             const container = document.getElementById('pokemon-list');
             const searchValue = document.getElementById('search-input').value.toLowerCase();
-            const filteredPokemon = pokemonData.filter(p => p.name.includes(searchValue));
+            const selectedRarity = document.getElementById('rarity-filter').value;
+            const selectedGen = document.getElementById('generation-filter').value;
+
+            const generationRange = selectedGen ? generationsData.find(gen => gen.name === selectedGen) : null;
+
+            const filteredPokemon = pokemonData.filter(p => {
+                const matchesSearch = p.name.includes(searchValue);
+                const matchesRarity = !selectedRarity || (collectedCards[p.id] && collectedCards[p.id].includes(selectedRarity));
+                const matchesGen = !generationRange || (p.id >= generationRange.start && p.id <= generationRange.end);
+                return matchesSearch && matchesRarity && matchesGen;
+            });
 
             if (filteredPokemon.length === 0) {
-                container.innerHTML = `<p class="text-gray-500 text-center py-10">No Pokémon found.</p>`;
+                container.innerHTML = `<p class="text-gray-500 text-center py-10">No Pokémon found matching your criteria.</p>`;
                 return;
             }
 
             container.innerHTML = '';
             filteredPokemon.forEach(pokemon => {
-                const currentRarity = collectedCards[pokemon.id] || '';
-                const isCollected = !!currentRarity;
+                const currentRarities = collectedCards[pokemon.id] || [];
+                const isCollected = currentRarities.length > 0;
                 const cardCollectedClass = isCollected ? 'border-green-400 bg-green-50' : 'border-gray-200';
                 
                 const card = document.createElement('div');
                 card.className = `pokemon-card p-4 bg-white rounded-lg shadow-md transition-all duration-300 transform hover:scale-105 ${cardCollectedClass}`;
+                
                 card.innerHTML = `
-                    <div class="flex flex-col items-center">
-                        <img src="${pokemon.imageUrl}" alt="${pokemon.name}" class="w-24 h-24 mb-2">
-                        <h3 class="text-lg font-semibold text-gray-800 capitalize mb-1">${pokemon.name}</h3>
-                        <p class="text-sm text-gray-500">#${pokemon.id}</p>
+                    <div class="flex items-center justify-between cursor-pointer" data-pokemon-id="${pokemon.id}">
+                        <div class="flex flex-col items-center flex-grow">
+                            <img src="${pokemon.imageUrl}" alt="${pokemon.name}" class="w-24 h-24 mb-2">
+                            <h3 class="text-lg font-semibold text-gray-800 capitalize mb-1">${pokemon.name}</h3>
+                            <p class="text-sm text-gray-500">#${pokemon.id}</p>
+                        </div>
+                        <svg class="w-6 h-6 text-gray-400 transition-transform duration-300" data-arrow-svg="${pokemon.id}" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
                     </div>
-                    <div class="mt-4 w-full">
-                        <label for="rarity-${pokemon.id}" class="block text-sm font-medium text-gray-700">Rarity:</label>
-                        <select id="rarity-${pokemon.id}" data-pokemon-id="${pokemon.id}" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md shadow-sm">
-                            <option value="">-- Not Collected --</option>
-                            ${RARITIES.map(rarity => `<option value="${rarity}" ${currentRarity === rarity ? 'selected' : ''}>${rarity}</option>`).join('')}
-                        </select>
+                    <div id="rarity-container-${pokemon.id}" class="mt-4 w-full grid grid-cols-2 gap-2 hidden">
+                        ${RARITIES.map(rarity => {
+                            const isSelected = currentRarities.includes(rarity);
+                            const selectedClass = isSelected ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-800';
+                            const symbol = raritySymbols[rarity];
+                            return `<button data-pokemon-id="${pokemon.id}" data-rarity="${rarity}" class="rarity-btn px-2 py-1 text-xs font-medium rounded-full transition-colors duration-200 ${selectedClass}">${symbol} ${rarity}</button>`;
+                        }).join('')}
                     </div>
                 `;
+
+                // Add a click listener to the entire card to toggle the rarity container
+                card.addEventListener('click', (e) => {
+                    // Check if the click was on a rarity button to prevent collapsing
+                    if (e.target.classList.contains('rarity-btn')) {
+                        return;
+                    }
+
+                    const rarityContainer = document.getElementById(`rarity-container-${pokemon.id}`);
+                    const arrowSvg = document.querySelector(`[data-arrow-svg="${pokemon.id}"]`);
+                    
+                    rarityContainer.classList.toggle('hidden');
+                    arrowSvg.classList.toggle('rotate-180');
+                });
                 
-                const selectElement = card.querySelector(`[data-pokemon-id="${pokemon.id}"]`);
-                selectElement.addEventListener('change', (e) => {
-                    handleRarityChange(e.target.dataset.pokemonId, e.target.value);
+                card.querySelectorAll('.rarity-btn').forEach(button => {
+                    button.addEventListener('click', (e) => {
+                        handleRarityClick(e.target.dataset.pokemonId, e.target.dataset.rarity);
+                    });
                 });
 
                 container.appendChild(card);
             });
         }
 
-        // Event listener for the search input
+        // Event listeners for the search input and rarity/generation filters
         document.addEventListener('DOMContentLoaded', () => {
             const searchInput = document.getElementById('search-input');
+            const rarityFilter = document.getElementById('rarity-filter');
+            const generationFilter = document.getElementById('generation-filter');
             searchInput.addEventListener('input', renderPokemonList);
+            rarityFilter.addEventListener('change', renderPokemonList);
+            generationFilter.addEventListener('change', renderPokemonList);
         });
 
     </script>
@@ -223,8 +329,14 @@
 
         <div id="message-container" class="fixed top-4 right-4 z-50"></div>
 
-        <div class="mb-6">
-            <input type="text" id="search-input" placeholder="Search for a Pokémon..." class="w-full px-4 py-3 border border-gray-300 rounded-full shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200">
+        <div class="flex flex-col sm:flex-row gap-4 mb-6">
+            <input type="text" id="search-input" placeholder="Search for a Pokémon..." class="w-full sm:w-1/3 px-4 py-3 border border-gray-300 rounded-full shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200">
+            <select id="rarity-filter" class="w-full sm:w-1/3 px-4 py-3 border border-gray-300 rounded-full shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200">
+                <!-- Rarity options will be populated here by JavaScript -->
+            </select>
+            <select id="generation-filter" class="w-full sm:w-1/3 px-4 py-3 border border-gray-300 rounded-full shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200">
+                <!-- Generation options will be populated here by JavaScript -->
+            </select>
         </div>
         
         <div id="pokemon-list" class="pokemon-list">
@@ -235,7 +347,7 @@
     <!-- Loading Indicator -->
     <div id="loading-indicator" class="flex flex-col items-center justify-center min-h-screen">
         <div class="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500"></div>
-        <p class="mt-4 text-gray-600">Loading app...</p>
+        <p id="loading-text" class="mt-4 text-gray-600">Loading app...</p>
     </div>
 
 </body>
