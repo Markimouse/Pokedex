@@ -8,7 +8,7 @@
     <script type="module">
         // Firebase imports
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signOut, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, signOut, signInWithPopup, GoogleAuthProvider, linkWithCredential, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, onSnapshot, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 
@@ -17,9 +17,6 @@
 
         // Global variables provided by the Canvas environment
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-        
-        // Your web app's Firebase configuration
         const firebaseConfig = {
             apiKey: "AIzaSyAhnSMCnVP1aB3i76Sbx1AIXKdzpva_428",
             authDomain: "pokedex-5df8e.firebaseapp.com",
@@ -106,6 +103,7 @@
                 const urlParams = new URLSearchParams(window.location.search);
                 const shareUserId = urlParams.get('userId');
 
+                // Check for a shared Pokedex URL and handle accordingly
                 if (shareUserId) {
                     isViewingSharedPokedex = true;
                     userId = shareUserId;
@@ -116,10 +114,10 @@
                     document.getElementById('logout-btn').classList.add('hidden');
                     document.getElementById('initial-view').classList.add('hidden');
 
-                    fetchPokemonData().then(() => {
-                        setupRealtimeListener();
-                    });
+                    await fetchPokemonData();
+                    setupRealtimeListener();
                 } else {
+                    // Regular login flow
                     onAuthStateChanged(auth, async (user) => {
                         if (user) {
                             userId = user.uid;
@@ -134,19 +132,13 @@
                             await fetchPokemonData();
                             setupRealtimeListener();
                         } else {
-                             console.log("No user signed in. Attempting custom token or anonymous sign-in.");
-                            if (initialAuthToken) {
-                                try {
-                                    await signInWithCustomToken(auth, initialAuthToken);
-                                    console.log("Custom token sign-in successful.");
-                                } catch (error) {
-                                    // Change console.error to console.log to show it's a handled fallback
-                                    console.log("Custom token sign-in failed. Falling back to anonymous:", error.message);
-                                    await signInAnonymously(auth);
-                                }
-                            } else {
-                                await signInAnonymously(auth);
-                            }
+                            userId = null;
+                            console.log("No user signed in. Showing initial view.");
+                            document.getElementById('loading-indicator').classList.add('hidden');
+                            document.getElementById('app-container').classList.add('hidden');
+                            document.getElementById('initial-view').classList.remove('hidden');
+                            document.getElementById('logout-btn').classList.add('hidden');
+                            document.getElementById('share-btn').classList.add('hidden');
                         }
                     });
                 }
@@ -156,6 +148,27 @@
                 if (error.code === 'failed-precondition' || error.code === 'resource-exhausted') {
                     document.getElementById('loading-text').textContent = "Firestore database not found. Please create it in your Firebase console to continue.";
                 }
+            }
+        }
+
+        // Handles Google sign-in and links anonymous accounts
+        async function handleGoogleSignIn() {
+            const provider = new GoogleAuthProvider();
+            try {
+                // Check if the current user is an anonymous user
+                if (auth.currentUser && auth.currentUser.isAnonymous) {
+                    const result = await signInWithPopup(auth, provider);
+                    // Link the anonymous account to the new Google account
+                    await linkWithCredential(auth.currentUser, result.credential);
+                    showMessage("Successfully linked anonymous data to your Google account!");
+                } else {
+                    // Sign in with Google directly
+                    await signInWithPopup(auth, provider);
+                    showMessage("Successfully signed in with Google!");
+                }
+            } catch (error) {
+                console.error("Google Sign-In failed:", error);
+                showMessage("Google Sign-In failed.", 'error');
             }
         }
         
@@ -484,12 +497,10 @@
                 });
             }
 
-            // Button to trigger anonymous sign-in
+            // Button to trigger Google sign-in
             const startBtn = document.getElementById('start-btn');
             if (startBtn) {
-                startBtn.addEventListener('click', () => {
-                    signInAnonymously(auth);
-                });
+                startBtn.addEventListener('click', handleGoogleSignIn);
             }
 
             // Call the initialization function when the DOM is loaded
@@ -550,7 +561,7 @@
         <h1 class="text-5xl font-extrabold text-gray-900 mb-4">Welcome to Pokedex Collector</h1>
         <p class="text-xl text-gray-600 mb-6">Track your Pokémon card collection and share it with friends!</p>
         <button id="start-btn" class="px-8 py-3 text-lg font-medium rounded-full text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200">
-            Start Your Collection
+            Sign In with Google
         </button>
     </div>
 
