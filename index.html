@@ -28,7 +28,7 @@
         let generationsData = [];
         let isViewingSharedPokedex = false;
         let shareableUrl = '';
-        let authStateChecked = false;
+        let authStateHandled = false;
 
         // Rarity options and symbols
         const RARITIES = ['Common', 'Uncommon', 'Rare', 'Double Rare', 'Holo Rare', 'Reverse Holo', 'Illustration Rare', 'Special Illustration Rare', 'Hyper Rare', 'Ultra Rare', 'Secret Rare', 'Gold'];
@@ -41,7 +41,7 @@
             'Reverse Holo': '★',
             'Illustration Rare': '★',
             'Special Illustration Rare': '★★',
-            'Hyper Rare': '★★★',
+            'Hyper Rare': '☆☆',
             'Ultra Rare': '☆☆',
             'Secret Rare': '★',
             'Gold': '★'
@@ -79,6 +79,29 @@
             shareModal.classList.remove('hidden');
         }
 
+        // A central function to control the UI state
+        function updateUI(isSharedView, isAuthenticated, currentUserId) {
+            document.getElementById('loading-indicator').classList.add('hidden');
+            document.getElementById('app-container').classList.add('hidden');
+            document.getElementById('initial-view').classList.add('hidden');
+
+            if (isSharedView) {
+                document.getElementById('user-id-display').textContent = `Viewing Shared Pokedex from User: ${currentUserId}`;
+                document.getElementById('app-container').classList.remove('hidden');
+                document.getElementById('share-btn').classList.add('hidden');
+                document.getElementById('logout-btn').classList.add('hidden');
+            } else if (isAuthenticated) {
+                document.getElementById('user-id-display').textContent = `User ID: ${currentUserId}`;
+                document.getElementById('app-container').classList.remove('hidden');
+                document.getElementById('logout-btn').classList.remove('hidden');
+                document.getElementById('share-btn').classList.remove('hidden');
+            } else {
+                document.getElementById('initial-view').classList.remove('hidden');
+                document.getElementById('logout-btn').classList.add('hidden');
+                document.getElementById('share-btn').classList.add('hidden');
+            }
+        }
+        
         // Initialize Firebase and set up authentication
         async function initializeAppAndAuth() {
             try {
@@ -93,40 +116,38 @@
                 db = getFirestore(app);
                 auth = getAuth(app);
                 
-                // This listener is the single source of truth for UI state
+                // This listener is now the single source of truth for UI state
                 onAuthStateChanged(auth, async (user) => {
-                    if (!authStateChecked) {
-                        authStateChecked = true;
-                        
-                        const urlParams = new URLSearchParams(window.location.search);
-                        const shareUserId = urlParams.get('userId');
+                    if (authStateHandled) {
+                        return;
+                    }
+                    authStateHandled = true;
 
-                        if (shareUserId) {
-                            isViewingSharedPokedex = true;
-                            userId = shareUserId;
-                            updateUI(true, false, userId);
-                            await fetchPokemonData();
-                            setupRealtimeListener();
-                        } else if (user) {
-                            userId = user.uid;
-                            console.log("Authenticated with user ID:", userId);
-                            updateUI(false, true, userId);
-                            await fetchPokemonData();
-                            setupRealtimeListener();
-                        } else {
-                            userId = null;
-                            console.log("No user signed in. Showing initial view.");
-                            updateUI(false, false, null);
-                        }
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const shareUserId = urlParams.get('userId');
+
+                    if (shareUserId) {
+                        isViewingSharedPokedex = true;
+                        userId = shareUserId;
+                        updateUI(true, false, userId);
+                        await fetchPokemonData();
+                        setupRealtimeListener();
+                    } else if (user) {
+                        userId = user.uid;
+                        console.log("Authenticated with user ID:", userId);
+                        updateUI(false, true, userId);
+                        await fetchPokemonData();
+                        setupRealtimeListener();
+                    } else {
+                        userId = null;
+                        console.log("No user signed in. Showing initial view.");
+                        updateUI(false, false, null);
                     }
                 });
 
                 // Check for a redirect result immediately on page load
-                const result = await getRedirectResult(auth);
-                if (result && result.user) {
-                    showMessage("Successfully signed in with Google!");
-                    // onAuthStateChanged will handle the rest
-                }
+                await getRedirectResult(auth);
+
             } catch (error) {
                 console.error("Firebase initialization failed:", error);
                 document.getElementById('loading-text').textContent = "Firebase initialization failed. Check your console for details.";
@@ -136,29 +157,6 @@
             }
         }
         
-        // A central function to control the UI state
-        function updateUI(isSharedView, isAuthenticated, currentUserId) {
-            document.getElementById('loading-indicator').classList.add('hidden');
-            if (isSharedView) {
-                document.getElementById('user-id-display').textContent = `Viewing Shared Pokedex from User: ${currentUserId}`;
-                document.getElementById('app-container').classList.remove('hidden');
-                document.getElementById('initial-view').classList.add('hidden');
-                document.getElementById('share-btn').classList.add('hidden');
-                document.getElementById('logout-btn').classList.add('hidden');
-            } else if (isAuthenticated) {
-                document.getElementById('user-id-display').textContent = `User ID: ${currentUserId}`;
-                document.getElementById('app-container').classList.remove('hidden');
-                document.getElementById('initial-view').classList.add('hidden');
-                document.getElementById('logout-btn').classList.remove('hidden');
-                document.getElementById('share-btn').classList.remove('hidden');
-            } else {
-                document.getElementById('app-container').classList.add('hidden');
-                document.getElementById('initial-view').classList.remove('hidden');
-                document.getElementById('logout-btn').classList.add('hidden');
-                document.getElementById('share-btn').classList.add('hidden');
-            }
-        }
-
         // Handles Google sign-in and links anonymous accounts
         async function handleGoogleSignIn() {
             const provider = new GoogleAuthProvider();
