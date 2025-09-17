@@ -123,6 +123,7 @@
                     onAuthStateChanged(auth, async (user) => {
                         if (user) {
                             userId = user.uid;
+                            console.log("Authenticated with user ID:", userId);
                             document.getElementById('user-id-display').textContent = `User ID: ${userId}`;
                             document.getElementById('loading-indicator').classList.add('hidden');
                             document.getElementById('app-container').classList.remove('hidden');
@@ -133,11 +134,14 @@
                             await fetchPokemonData();
                             setupRealtimeListener();
                         } else {
+                             console.log("No user signed in. Attempting custom token or anonymous sign-in.");
                             if (initialAuthToken) {
                                 try {
                                     await signInWithCustomToken(auth, initialAuthToken);
+                                    console.log("Custom token sign-in successful.");
                                 } catch (error) {
-                                    // Silently fail and fall back to anonymous sign-in
+                                    // Change console.error to console.log to show it's a handled fallback
+                                    console.log("Custom token sign-in failed. Falling back to anonymous:", error.message);
                                     await signInAnonymously(auth);
                                 }
                             } else {
@@ -238,6 +242,7 @@
             let collectionRef;
             if (isViewingSharedPokedex) {
                 collectionRef = doc(db, `artifacts/${appId}/public/data/shared_pokedex/${userId}`);
+                console.log("Listening to shared collection path:", `artifacts/${appId}/public/data/shared_pokedex/${userId}`);
                 onSnapshot(collectionRef, (docSnap) => {
                     if (docSnap.exists()) {
                         collectedCards = docSnap.data().cards || {};
@@ -252,6 +257,7 @@
 
             } else {
                 collectionRef = collection(db, `artifacts/${appId}/users/${userId}/pokemon_cards`);
+                console.log("Listening to private collection path:", `artifacts/${appId}/users/${userId}/pokemon_cards`);
                 onSnapshot(collectionRef, (snapshot) => {
                     collectedCards = {};
                     snapshot.forEach(doc => {
@@ -271,8 +277,11 @@
         // Handle rarity button clicks and save to Firestore
         async function handleRarityClick(pokemonId, toggledRarity) {
             const currentAuthenticatedUserId = auth.currentUser?.uid;
+            console.log("Attempting to save with user ID:", currentAuthenticatedUserId);
+            
             if (!currentAuthenticatedUserId) {
                 showMessage('Please log in to save your collection.', 'error');
+                console.error("Save failed: No authenticated user ID found.");
                 return;
             }
 
@@ -299,9 +308,11 @@
             try {
                 if (newRarities.length === 0) {
                     // If no rarities are selected, remove the document
+                    console.log(`Deleting document at path: ${cardRef.path}`);
                     await setDoc(cardRef, { collected: false });
                 } else {
                     // Otherwise, update the document with the new rarities array
+                    console.log(`Updating document at path: ${cardRef.path} with rarities:`, newRarities);
                     await setDoc(cardRef, {
                         id: pokemon.id,
                         name: pokemon.name,
@@ -309,7 +320,7 @@
                     }, { merge: true });
                 }
             } catch (e) {
-                console.error("Error updating document: ", e);
+                console.error("Error updating document:", e);
                 showMessage(`Failed to update ${pokemon.name}'s rarities.`, 'error');
             }
         }
