@@ -29,7 +29,7 @@
             appId: "1:93348869700:web:d0669fbd08ea16c3aeee11",
             measurementId: "G-X3GD2XY8VC"
         };
-
+        
         let app;
         let db;
         let auth;
@@ -90,7 +90,7 @@
         }
 
         // Initialize Firebase and set up authentication
-        function initializeAppAndAuth() {
+        async function initializeAppAndAuth() {
             try {
                 // Validate firebaseConfig before initialization
                 if (Object.keys(firebaseConfig).length === 0) {
@@ -133,9 +133,16 @@
                             await fetchPokemonData();
                             setupRealtimeListener();
                         } else {
-                            document.getElementById('app-container').classList.add('hidden');
-                            document.getElementById('initial-view').classList.remove('hidden');
-                            document.getElementById('loading-indicator').classList.add('hidden');
+                            if (initialAuthToken) {
+                                try {
+                                    await signInWithCustomToken(auth, initialAuthToken);
+                                } catch (error) {
+                                    // Silently fail and fall back to anonymous sign-in
+                                    await signInAnonymously(auth);
+                                }
+                            } else {
+                                await signInAnonymously(auth);
+                            }
                         }
                     });
                 }
