@@ -9,7 +9,7 @@
         // Firebase imports
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signOut, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 
         // Set Firebase log level to debug for better console output
@@ -153,6 +153,9 @@
             } catch (error) {
                 console.error("Firebase initialization failed:", error);
                 document.getElementById('loading-text').textContent = "Firebase initialization failed. Check your console for details.";
+                if (error.code === 'failed-precondition' || error.code === 'resource-exhausted') {
+                    document.getElementById('loading-text').textContent = "Firestore database not found. Please create it in your Firebase console to continue.";
+                }
             }
         }
         
@@ -279,6 +282,10 @@
             const currentAuthenticatedUserId = auth.currentUser?.uid;
             console.log("Attempting to save with user ID:", currentAuthenticatedUserId);
             
+            if (isViewingSharedPokedex) {
+                showMessage("You cannot edit a shared Pokedex.", 'error');
+                return;
+            }
             if (!currentAuthenticatedUserId) {
                 showMessage('Please log in to save your collection.', 'error');
                 console.error("Save failed: No authenticated user ID found.");
@@ -309,7 +316,7 @@
                 if (newRarities.length === 0) {
                     // If no rarities are selected, remove the document
                     console.log(`Deleting document at path: ${cardRef.path}`);
-                    await setDoc(cardRef, { collected: false });
+                    await deleteDoc(cardRef);
                 } else {
                     // Otherwise, update the document with the new rarities array
                     console.log(`Updating document at path: ${cardRef.path} with rarities:`, newRarities);
