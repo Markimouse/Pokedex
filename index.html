@@ -8,7 +8,7 @@
     <script type="module">
         // Firebase imports
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged, signOut, signInWithPopup, GoogleAuthProvider, linkWithCredential, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, signOut, signInWithRedirect, GoogleAuthProvider, getRedirectResult, linkWithCredential, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, onSnapshot, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 
@@ -135,9 +135,16 @@
                         }
                     });
 
-                    // Sign in anonymously on initial load if no user is authenticated
-                    if (!auth.currentUser) {
-                        await signInAnonymously(auth);
+                    // Handle redirect result after sign-in
+                    const result = await getRedirectResult(auth);
+                    if (result && result.user) {
+                         console.log("Successfully signed in with redirect:", result.user.uid);
+                         showMessage("Successfully signed in with Google!");
+                    } else {
+                         // Sign in anonymously on initial load if no user is authenticated
+                        if (!auth.currentUser) {
+                            await signInAnonymously(auth);
+                        }
                     }
                 }
             } catch (error) {
@@ -155,15 +162,11 @@
             try {
                 // Check if the current user is an anonymous user
                 if (auth.currentUser && auth.currentUser.isAnonymous) {
-                    const result = await signInWithPopup(auth, provider);
-                    // Link the anonymous account to the new Google account
                     await linkWithCredential(auth.currentUser, result.credential);
                     showMessage("Successfully linked anonymous data to your Google account!");
-                } else {
-                    // Sign in with Google directly
-                    await signInWithPopup(auth, provider);
-                    showMessage("Successfully signed in with Google!");
                 }
+                // Always start a redirect sign-in, since pop-ups are unreliable
+                await signInWithRedirect(auth, provider);
             } catch (error) {
                 console.error("Google Sign-In failed:", error);
                 showMessage("Google Sign-In failed.", 'error');
