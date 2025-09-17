@@ -106,7 +106,7 @@
         async function initializeAppAndAuth() {
             try {
                 // Validate firebaseConfig before initialization
-                if (Object.keys(firebaseConfig).length === 0) {
+                if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey) {
                     document.getElementById('loading-text').textContent = "Error: Firebase configuration is missing or invalid. Please refresh the page.";
                     document.getElementById('loading-indicator').classList.add('hidden');
                     return;
