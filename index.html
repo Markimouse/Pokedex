@@ -84,6 +84,7 @@
             document.getElementById('loading-indicator').classList.add('hidden');
             document.getElementById('app-container').classList.add('hidden');
             document.getElementById('initial-view').classList.add('hidden');
+            document.getElementById('error-view').classList.add('hidden');
 
             if (isSharedView) {
                 document.getElementById('user-id-display').textContent = `Viewing Shared Pokedex from User: ${currentUserId}`;
@@ -105,10 +106,11 @@
         // Initialize Firebase and set up authentication
         async function initializeAppAndAuth() {
             try {
-                // Validate firebaseConfig before initialization
+                // Explicit check for a valid Firebase config
                 if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey) {
-                    document.getElementById('loading-text').textContent = "Error: Firebase configuration is missing or invalid. Please refresh the page.";
                     document.getElementById('loading-indicator').classList.add('hidden');
+                    document.getElementById('error-view').classList.remove('hidden');
+                    document.getElementById('error-message').textContent = "Error: Firebase configuration is missing or invalid. Please refresh the page.";
                     return;
                 }
 
@@ -150,10 +152,9 @@
 
             } catch (error) {
                 console.error("Firebase initialization failed:", error);
-                document.getElementById('loading-text').textContent = "Firebase initialization failed. Check your console for details.";
-                if (error.code === 'failed-precondition' || error.code === 'resource-exhausted') {
-                    document.getElementById('loading-text').textContent = "Firestore database not found. Please create it in your Firebase console to continue.";
-                }
+                document.getElementById('loading-indicator').classList.add('hidden');
+                document.getElementById('error-view').classList.remove('hidden');
+                document.getElementById('error-message').textContent = `Firebase initialization failed. Check your console for details. Error: ${error.message}`;
             }
         }
         
@@ -549,6 +550,16 @@
     <div id="loading-indicator" class="flex flex-col items-center justify-center min-h-screen">
         <div class="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500"></div>
         <p id="loading-text" class="mt-4 text-gray-600">Loading app...</p>
+    </div>
+
+    <!-- Error View -->
+    <div id="error-view" class="hidden flex flex-col items-center justify-center min-h-screen text-center">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-red-500 mb-4" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+        </svg>
+        <h1 class="text-3xl font-bold text-red-700 mb-2">Initialization Error</h1>
+        <p id="error-message" class="text-md text-red-600 mb-6"></p>
+        <p class="text-sm text-gray-500">Please check the developer console for more details, or try refreshing the page.</p>
     </div>
 
     <!-- Initial Welcome/Logged Out View -->
