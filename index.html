@@ -28,6 +28,7 @@
         let generationsData = [];
         let isViewingSharedPokedex = false;
         let shareableUrl = '';
+        let authStateChecked = false;
 
         // Rarity options and symbols
         const RARITIES = ['Common', 'Uncommon', 'Rare', 'Double Rare', 'Holo Rare', 'Reverse Holo', 'Illustration Rare', 'Special Illustration Rare', 'Hyper Rare', 'Ultra Rare', 'Secret Rare', 'Gold'];
@@ -92,30 +93,31 @@
                 db = getFirestore(app);
                 auth = getAuth(app);
                 
-                // This listener is now the single source of truth for UI state
+                // This listener is the single source of truth for UI state
                 onAuthStateChanged(auth, async (user) => {
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const shareUserId = urlParams.get('userId');
+                    if (!authStateChecked) {
+                        authStateChecked = true;
+                        
+                        const urlParams = new URLSearchParams(window.location.search);
+                        const shareUserId = urlParams.get('userId');
 
-                    // If we're viewing a shared Pokedex, handle that first.
-                    if (shareUserId) {
-                        isViewingSharedPokedex = true;
-                        userId = shareUserId;
-                        renderApp(true, false, userId);
-                        await fetchPokemonData();
-                        setupRealtimeListener();
-                    } else if (user) {
-                        userId = user.uid;
-                        console.log("Authenticated with user ID:", userId);
-                        renderApp(false, true, userId);
-
-                        await fetchPokemonData();
-                        setupRealtimeListener();
-                    } else {
-                        // If no user is authenticated, show the initial login view
-                        userId = null;
-                        console.log("No user signed in. Showing initial view.");
-                        renderApp(false, false, null);
+                        if (shareUserId) {
+                            isViewingSharedPokedex = true;
+                            userId = shareUserId;
+                            updateUI(true, false, userId);
+                            await fetchPokemonData();
+                            setupRealtimeListener();
+                        } else if (user) {
+                            userId = user.uid;
+                            console.log("Authenticated with user ID:", userId);
+                            updateUI(false, true, userId);
+                            await fetchPokemonData();
+                            setupRealtimeListener();
+                        } else {
+                            userId = null;
+                            console.log("No user signed in. Showing initial view.");
+                            updateUI(false, false, null);
+                        }
                     }
                 });
 
@@ -123,7 +125,7 @@
                 const result = await getRedirectResult(auth);
                 if (result && result.user) {
                     showMessage("Successfully signed in with Google!");
-                    // The onAuthStateChanged listener will handle the rest
+                    // onAuthStateChanged will handle the rest
                 }
             } catch (error) {
                 console.error("Firebase initialization failed:", error);
@@ -135,14 +137,14 @@
         }
         
         // A central function to control the UI state
-        function renderApp(isSharedView, isAuthenticated, currentUserId) {
+        function updateUI(isSharedView, isAuthenticated, currentUserId) {
             document.getElementById('loading-indicator').classList.add('hidden');
             if (isSharedView) {
                 document.getElementById('user-id-display').textContent = `Viewing Shared Pokedex from User: ${currentUserId}`;
                 document.getElementById('app-container').classList.remove('hidden');
+                document.getElementById('initial-view').classList.add('hidden');
                 document.getElementById('share-btn').classList.add('hidden');
                 document.getElementById('logout-btn').classList.add('hidden');
-                document.getElementById('initial-view').classList.add('hidden');
             } else if (isAuthenticated) {
                 document.getElementById('user-id-display').textContent = `User ID: ${currentUserId}`;
                 document.getElementById('app-container').classList.remove('hidden');
