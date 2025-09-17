@@ -17,7 +17,15 @@
 
         // Global variables provided by the Canvas environment
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+
+        // Hardcoded Firebase configuration based on user-provided details
+        const firebaseConfig = {
+            apiKey: "AIzaSyAhnSMCnVP1aB3i76Sbx1AIXKdzpva_428",
+            authDomain: "pokedex-5df8e.firebaseapp.com",
+            projectId: "pokedex-5df8e",
+            storageBucket: "pokedex-5df8e.appspot.com",
+            messagingSenderId: "93348869700",
+        };
         
         let app;
         let db;
