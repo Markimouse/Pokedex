@@ -110,7 +110,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         setLogLevel('debug');
@@ -147,7 +147,7 @@
             'Special Illustration Rare': { icon: '★★', color: '#DAA520', order: 6 },
             'Hyper Rare': { icon: '★★★', color: '#FFD700', order: 7 },
         };
-
+        
         const firebaseConfig = {
             apiKey: "AIzaSyAhnSMCnVP1aB3i76Sbx1AIXKdzpva_428",
             authDomain: "pokedex-5df8e.firebaseapp.com",
@@ -188,14 +188,18 @@
             }
         }
 
-        onAuthStateChanged(auth, async (user) => {
+        // Use onAuthStateChanged as the single source of truth for authentication state.
+        onAuthStateChanged(auth, (user) => {
             if (user) {
+                // User is signed in.
                 userInfoDisplay.textContent = `User: ${user.email || 'Anonymous'}`;
                 
+                // If a previous Firestore listener exists, unsubscribe from it.
                 if (unsubscribeFromFirestore) {
                     unsubscribeFromFirestore();
                 }
 
+                // Listen for changes in the user's collection.
                 const pokedexPath = `users/${user.uid}/pokedexEntries`;
                 const q = query(collection(db, pokedexPath));
                 
@@ -218,6 +222,9 @@
                 });
                 
             } else {
+                // User is not signed in.
+                userInfoDisplay.textContent = 'User: Not signed in';
+                // Try to sign in anonymously if no user is present.
                 signInAnonymously(auth).catch(error => {
                     console.error("Error signing in anonymously:", error);
                 });
@@ -235,6 +242,7 @@
             }
 
             try {
+                // First, try to sign in. If the user doesn't exist, create an account.
                 await signInWithEmailAndPassword(auth, email, password);
                 authMessage.textContent = 'Successfully logged in!';
                 authMessage.style.color = '#10B981';
