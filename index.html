@@ -153,6 +153,7 @@
         let selectedRarityFilters = new Set();
         let pokemonNameFilter = '';
         let isAuthReady = false;
+        let isPokemonLoaded = false;
 
         const POKEAPI_URL = 'https://pokeapi.co/api/v2/pokemon?limit=10000';
 
@@ -228,7 +229,6 @@
 
         onAuthStateChanged(auth, async (user) => {
             if (user) {
-                // Show the user ID as required
                 userInfoDisplay.textContent = `User ID: ${user.uid}`;
                 
                 if (unsubscribeFromFirestore) {
@@ -246,7 +246,9 @@
                     });
                     ownedRarities = newOwnedRarities;
                     updateCompletionRate();
-                    filterAndRenderPokemon();
+                    if (isPokemonLoaded) {
+                        filterAndRenderPokemon();
+                    }
                 }, (error) => {
                     console.error("Error listening to Firestore:", error);
                     const messageBox = document.createElement('div');
@@ -263,7 +265,6 @@
                 
             } else {
                 userInfoDisplay.textContent = 'User: Not signed in';
-                // Use the provided auth token if it exists, otherwise sign in anonymously
                 if (typeof __initial_auth_token !== 'undefined') {
                     await signInWithCustomToken(auth, __initial_auth_token);
                 } else {
@@ -284,6 +285,7 @@
         }
 
         async function fetchAllPokemon() {
+            if (isPokemonLoaded) return;
             loadingIndicator.classList.remove('hidden');
             pokemonListContainer.innerHTML = '';
             
@@ -303,9 +305,10 @@
                 }
 
                 allPokemon = pokemonData;
+                isPokemonLoaded = true;
 
                 renderRarityFilters();
-                filterAndRenderPokemon();
+                // We no longer call filterAndRenderPokemon() here. The onSnapshot listener will handle the initial render.
             } catch (error) {
                 console.error('Failed to fetch Pokémon data:', error);
                 loadingIndicator.textContent = 'Failed to load Pokémon data. Please try again later.';
@@ -482,7 +485,7 @@
             pokemonSearchInput.value = '';
             pokemonNameFilter = '';
             selectedRarityFilters.clear();
-            renderRarityFilters(); // Re-render to uncheck checkboxes
+            renderRarityFilters();
             filterAndRenderPokemon();
         });
     </script>
