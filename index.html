@@ -150,9 +150,6 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
 
-        // The appId for the Firestore path should match your project ID
-        const appId = firebaseConfig.projectId;
-
         let unsubscribeFromFirestore = null;
 
         modalCloseBtn.addEventListener('click', () => {
@@ -185,7 +182,7 @@
                 const userId = user.uid;
                 userIdDisplay.textContent = `User ID: ${userId}`;
                 
-                const pokedexPath = `/artifacts/${appId}/users/${userId}/pokedexEntries`;
+                const pokedexPath = `users/${userId}/pokedexEntries`;
                 const q = query(collection(db, pokedexPath));
                 
                 unsubscribeFromFirestore = onSnapshot(q, (snapshot) => {
@@ -363,11 +360,11 @@
                     
                     try {
                         if (newRarities.size > 0) {
-                            await setDoc(doc(db, `/artifacts/${appId}/users/${auth.currentUser.uid}/pokedexEntries`, pokemonName), {
+                            await setDoc(doc(db, `users/${auth.currentUser.uid}/pokedexEntries`, pokemonName), {
                                 rarities: [...newRarities]
                             });
                         } else {
-                            await deleteDoc(doc(db, `/artifacts/${appId}/users/${auth.currentUser.uid}/pokedexEntries`, pokemonName));
+                            await deleteDoc(doc(db, `users/${auth.currentUser.uid}/pokedexEntries`, pokemonName));
                         }
                     } catch (error) {
                         console.error("Error updating rarities:", error);
