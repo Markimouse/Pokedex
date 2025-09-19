@@ -145,6 +145,69 @@
                 statusMessage.classList.add('bg-red-100');
             }
         }
+
+        async function fetchCardsFromApi() {
+            if (!userId) {
+                document.getElementById('statusMessage').textContent = "Authentication not complete. Please wait...";
+                return;
+            }
+            
+            let apiUrl = "https://api.pokemontcg.io/v2/cards?q=";
+            const cardType = currentFilters.type;
+            
+            // Map the app's type to the API's supertype and subtype
+            let supertype;
+            let subtype = "";
+            switch (cardType) {
+                case 'Pokemon':
+                    supertype = 'Pokemon';
+                    break;
+                case 'Trainer':
+                    supertype = 'Trainer';
+                    subtype = ' -subtype:Item -subtype:Stadium'; // Exclude Item and Stadium
+                    break;
+                case 'Item':
+                    supertype = 'Trainer';
+                    subtype = 'subtype:Item';
+                    break;
+                case 'Stadium':
+                    supertype = 'Trainer';
+                    subtype = 'subtype:Stadium';
+                    break;
+            }
+            
+            apiUrl += `supertype:${supertype} ${subtype}`;
+
+            try {
+                document.getElementById('statusMessage').textContent = "Fetching cards...";
+                const response = await fetch(apiUrl);
+                const data = await response.json();
+
+                if (data.data && data.data.length > 0) {
+                    for (const card of data.data.slice(0, 10)) { // Fetching top 10 for simplicity
+                        await addDoc(collection(db, `artifacts/${firebaseConfig.projectId}/users/${userId}/pokemon_cards`), {
+                            name: card.name,
+                            type: cardType,
+                            rarity: card.rarity || 'Unknown', // Use 'Unknown' if rarity is missing
+                            timestamp: new Date()
+                        });
+                    }
+                    document.getElementById('statusMessage').textContent = `Successfully fetched and added ${data.data.slice(0, 10).length} new cards!`;
+                    document.getElementById('statusMessage').classList.remove('bg-gray-50', 'bg-red-100');
+                    document.getElementById('statusMessage').classList.add('bg-green-100');
+                } else {
+                    document.getElementById('statusMessage').textContent = "No cards found for this type.";
+                    document.getElementById('statusMessage').classList.remove('bg-gray-50', 'bg-green-100');
+                    document.getElementById('statusMessage').classList.add('bg-red-100');
+                }
+
+            } catch (e) {
+                console.error("Error fetching or adding cards:", e);
+                document.getElementById('statusMessage').textContent = "Error fetching cards from API.";
+                document.getElementById('statusMessage').classList.remove('bg-gray-50', 'bg-green-100');
+                document.getElementById('statusMessage').classList.add('bg-red-100');
+            }
+        }
         
         function startFirestoreListener() {
             if (!userId) return; // Wait for authentication
@@ -233,6 +296,10 @@
                 Add Card
             </button>
         </form>
+
+        <button onclick="fetchCardsFromApi()" class="w-full py-3 px-6 rounded-xl text-lg font-semibold text-gray-800 bg-gray-200 transition-transform duration-200 transform hover:scale-105 active:scale-100 focus:outline-none focus:ring-4 focus:ring-gray-300">
+            Fetch Cards from API
+        </button>
 
         <!-- Status message display -->
         <div id="statusMessage" class="mt-4 p-4 rounded-xl text-gray-700 bg-gray-50 border border-gray-200">
