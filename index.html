@@ -3,715 +3,173 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pokedex Card Collector</title>
+    <title>Pokémon Data Collector</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script type="module">
-        // Firebase imports
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged, signOut, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, onSnapshot, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-
-        // Set Firebase log level to debug for better console output
-        setLogLevel('Debug');
-
-        // Global variables provided by the Canvas environment
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-        // Hardcoded Firebase configuration based on user-provided details
-        const firebaseConfig = {
-            apiKey: "AIzaSyAhnSMCnVP1aB3i76Sbx1AIXKdzpva_428",
-            authDomain: "pokedex-5df8e.firebaseapp.com",
-            projectId: "pokedex-5df8e",
-            storageBucket: "pokedex-5df8e.appspot.com",
-            messagingSenderId: "93348869700",
-        };
-        
-        let app;
-        let db;
-        let auth;
-        let userId = null;
-        let allCardData = { pokemon: [], trainers: [], items: [], stadiums: [] };
-        let currentCategory = 'pokemon';
-        let collectedCards = {};
-        let generationsData = [];
-        let isViewingSharedPokedex = false;
-        let shareableUrl = '';
-        let authStateHandled = false;
-
-        // Rarity options and symbols, from the Pokémon TCG API
-        const RARITIES = ['Common', 'Uncommon', 'Rare Holo', 'Rare', 'Rare Holo EX', 'Rare Holo LV.X', 'Rare Holo VMAX', 'Rare Holo GX', 'Rare Holo V', 'Rare Holo Star', 'Rare Holo', 'Amazing Rare', 'Promo'];
-        
-        const raritySymbols = {
-            'Common': '●',
-            'Uncommon': '◆',
-            'Rare': '★',
-            'Rare Holo': '★',
-            'Rare Holo EX': '★',
-            'Rare Holo LV.X': '★',
-            'Rare Holo GX': '★',
-            'Rare Holo V': '★',
-            'Rare Holo VMAX': '★',
-            'Rare Holo Star': '★',
-            'Amazing Rare': '★',
-            'Promo': '★'
-        };
-
-        const rarityColors = {
-            'Common': 'bg-gray-400',
-            'Uncommon': 'bg-green-400',
-            'Rare': 'bg-yellow-400',
-            'Rare Holo': 'bg-yellow-500',
-            'Rare Holo EX': 'bg-orange-400',
-            'Rare Holo LV.X': 'bg-purple-400',
-            'Rare Holo GX': 'bg-rose-500',
-            'Rare Holo V': 'bg-blue-600',
-            'Rare Holo VMAX': 'bg-red-600',
-            'Rare Holo Star': 'bg-slate-700',
-            'Amazing Rare': 'bg-pink-400',
-            'Promo': 'bg-amber-500'
-        };
-
-        // Function to create a message box instead of using alert()
-        function showMessage(message, type = 'info') {
-            const container = document.getElementById('message-container');
-            container.innerHTML = `<div class="p-3 mb-4 rounded-lg text-sm text-center font-medium ${type === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}">${message}</div>`;
-            setTimeout(() => {
-                container.innerHTML = '';
-            }, 5000);
-        }
-        
-        // Function to show a modal with a shareable URL
-        function showShareModal() {
-            const shareModal = document.getElementById('share-modal');
-            const shareUrlInput = document.getElementById('share-url-input');
-            shareUrlInput.value = shareableUrl;
-            shareModal.classList.remove('hidden');
-        }
-
-        // A central function to control the UI state
-        function updateUI(isSharedView, isAuthenticated, currentUserId) {
-            document.getElementById('loading-indicator').classList.add('hidden');
-            document.getElementById('app-container').classList.add('hidden');
-            document.getElementById('initial-view').classList.add('hidden');
-            document.getElementById('error-view').classList.add('hidden');
-
-            if (isSharedView) {
-                document.getElementById('user-id-display').textContent = `Viewing Shared Pokedex from User: ${currentUserId}`;
-                document.getElementById('app-container').classList.remove('hidden');
-                document.getElementById('share-btn').classList.add('hidden');
-                document.getElementById('logout-btn').classList.add('hidden');
-                document.getElementById('card-tabs').classList.add('hidden');
-            } else if (isAuthenticated) {
-                document.getElementById('user-id-display').textContent = `User ID: ${currentUserId}`;
-                document.getElementById('app-container').classList.remove('hidden');
-                document.getElementById('logout-btn').classList.remove('hidden');
-                document.getElementById('share-btn').classList.remove('hidden');
-                document.getElementById('card-tabs').classList.remove('hidden');
-            } else {
-                document.getElementById('initial-view').classList.remove('hidden');
-                document.getElementById('logout-btn').classList.add('hidden');
-                document.getElementById('share-btn').classList.add('hidden');
-                document.getElementById('card-tabs').classList.add('hidden');
-            }
-        }
-        
-        // Initialize Firebase and set up authentication
-        async function initializeAppAndAuth() {
-            try {
-                // Explicit check for a valid Firebase config
-                if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey) {
-                    document.getElementById('loading-indicator').classList.add('hidden');
-                    document.getElementById('error-view').classList.remove('hidden');
-                    document.getElementById('error-message').textContent = "Error: Firebase configuration is missing or invalid. Please refresh the page.";
-                    return;
-                }
-
-                app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-                
-                // This listener is now the single source of truth for UI state
-                onAuthStateChanged(auth, async (user) => {
-                    if (authStateHandled) {
-                        return;
-                    }
-                    authStateHandled = true;
-
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const shareUserId = urlParams.get('userId');
-
-                    if (shareUserId) {
-                        isViewingSharedPokedex = true;
-                        userId = shareUserId;
-                        updateUI(true, false, userId);
-                        await fetchAllCardData();
-                        setupRealtimeListener();
-                    } else if (user) {
-                        userId = user.uid;
-                        console.log("Authenticated with user ID:", userId);
-                        updateUI(false, true, userId);
-                        await fetchAllCardData();
-                        setupRealtimeListener();
-                    } else {
-                        userId = null;
-                        console.log("No user signed in. Showing initial view.");
-                        updateUI(false, false, null);
-                    }
-                });
-
-            } catch (error) {
-                console.error("Firebase initialization failed:", error);
-                document.getElementById('loading-indicator').classList.add('hidden');
-                document.getElementById('error-view').classList.remove('hidden');
-                document.getElementById('error-message').textContent = `Firebase initialization failed. Check your console for details. Error: ${error.message}`;
-            }
-        }
-        
-        // Handle anonymous sign-in to start collecting
-        async function handleStartCollecting() {
-            if (auth.currentUser) {
-                showMessage("You are already signed in. Happy collecting!", 'info');
-                return;
-            }
-
-            try {
-                await signInAnonymously(auth);
-                showMessage("Signed in anonymously. Your progress is being saved!");
-            } catch (error) {
-                console.error("Anonymous Sign-In failed:", error);
-                showMessage("Anonymous Sign-In failed. Please try again.", 'error');
-            }
-        }
-        
-        // Handle user logout
-        async function handleSignOut() {
-            try {
-                await signOut(auth);
-                showMessage("Logged out successfully.");
-            } catch (error) {
-                console.error("Logout failed:", error);
-                showMessage("Failed to log out.", 'error');
-            }
-        }
-
-        // Fetch all card data from the respective APIs
-        async function fetchAllCardData() {
-            const loadingText = document.getElementById('loading-text');
-            loadingText.textContent = 'Loading card data... This may take a moment.';
-            document.getElementById('loading-indicator').classList.remove('hidden');
-            
-            try {
-                // Fetch Pokémon data
-                const pokeApiUrl = 'https://pokeapi.co/api/v2/pokemon?limit=1025';
-                const pokeResponse = await fetch(pokeApiUrl);
-                const pokeData = await pokeResponse.json();
-                const pokeDetailsPromises = pokeData.results.map(pokemon => fetch(pokemon.url).then(res => res.json()));
-                const pokeDetails = await Promise.all(pokeDetailsPromises);
-                allCardData.pokemon = pokeDetails.map(detail => ({
-                    id: `pokemon-${detail.id}`,
-                    name: detail.name,
-                    imageUrl: detail.sprites.front_default,
-                    types: detail.types.map(t => t.type.name),
-                    supertype: 'Pokemon'
-                }));
-
-                // Fetch generations data for the filter
-                const genResponse = await fetch('https://pokeapi.co/api/v2/generation/');
-                const genData = await genResponse.json();
-                const genDetailsPromises = genData.results.map(gen => fetch(gen.url).then(res => res.json()));
-                const genDetails = await Promise.all(genDetailsPromises);
-                generationsData = genDetails.map(gen => {
-                    const sortedPokemon = gen.pokemon_species.map(p => {
-                        const id = p.url.split('/').slice(-2, -1)[0];
-                        return parseInt(id);
-                    }).sort((a, b) => a - b);
-                    return {
-                        name: gen.name,
-                        start: sortedPokemon[0],
-                        end: sortedPokemon[sortedPokemon.length - 1]
-                    };
-                });
-                
-                // Fetch Trainer, Item, and Stadium cards from pokemontcg.io
-                const tcgApiUrl = 'https://api.pokemontcg.io/v2/cards?q=supertype:trainer&select=id,name,images,subtypes,rarity';
-                const tcgResponse = await fetch(tcgApiUrl);
-                const tcgData = await tcgResponse.json();
-
-                tcgData.data.forEach(card => {
-                    const cardData = {
-                        id: `trainer-${card.id}`,
-                        name: card.name,
-                        imageUrl: card.images.small,
-                        supertype: card.supertype,
-                        subtype: card.subtypes?.[0],
-                        rarity: card.rarity
-                    };
-
-                    if (cardData.subtype === 'Item') {
-                        allCardData.items.push(cardData);
-                    } else if (cardData.subtype === 'Stadium') {
-                        allCardData.stadiums.push(cardData);
-                    } else {
-                        // Assume other subtypes are just general trainers
-                        allCardData.trainers.push(cardData);
-                    }
-                });
-
-                document.getElementById('loading-indicator').classList.add('hidden');
-                document.getElementById('app-container').classList.remove('hidden');
-                
-                // Populate filters after data is loaded
-                populateFilters();
-                renderCardList();
-            } catch (error) {
-                console.error("Error fetching card data:", error);
-                loadingText.textContent = 'Failed to load card data. Please check your network connection and try again.';
-            }
-        }
-
-        // Populate filters based on the loaded data
-        function populateFilters() {
-            const rarityFilter = document.getElementById('rarity-filter');
-            rarityFilter.innerHTML = `<option value="">-- All Rarities --</option>` + RARITIES.map(rarity => `<option value="${rarity}">${raritySymbols[rarity]} ${rarity}</option>`).join('');
-            
-            const genFilter = document.getElementById('generation-filter');
-            genFilter.innerHTML = `<option value="">-- All Generations --</option>` + generationsData.map(gen => {
-                const genNumber = gen.name.split('-')[1].toUpperCase();
-                return `<option value="${gen.name}">Generation ${genNumber} (${gen.start}-${gen.end})</option>`;
-            }).join('');
-
-            renderColorKey();
-        }
-
-        // Set up the real-time Firestore listener for the user's collection
-        function setupRealtimeListener() {
-            if (!userId) {
-                return;
-            }
-
-            let collectionRef;
-            if (isViewingSharedPokedex) {
-                collectionRef = doc(db, `artifacts/${appId}/public/data/shared_collection/${userId}`);
-                console.log("Listening to shared collection path:", `artifacts/${appId}/public/data/shared_collection/${userId}`);
-                onSnapshot(collectionRef, (docSnap) => {
-                    if (docSnap.exists()) {
-                        collectedCards = docSnap.data().cards || {};
-                    } else {
-                        collectedCards = {};
-                    }
-                    renderCardList();
-                }, (error) => {
-                    console.error("Error listening to Firestore:", error);
-                    showMessage("Failed to load the shared collection.", 'error');
-                });
-
-            } else {
-                collectionRef = collection(db, `artifacts/${appId}/users/${userId}/collected_cards`);
-                console.log("Listening to private collection path:", `artifacts/${appId}/users/${userId}/collected_cards`);
-                onSnapshot(collectionRef, (snapshot) => {
-                    collectedCards = {};
-                    snapshot.forEach(doc => {
-                        const card = doc.data();
-                        collectedCards[card.cardId] = card.rarities;
-                    });
-                    renderCardList();
-                }, (error) => {
-                    console.error("Error listening to Firestore:", error);
-                    showMessage("Failed to load your collection. Check your connection.", 'error');
-                });
-            }
-        }
-        
-        // Handle rarity button clicks and save to Firestore
-        async function handleRarityClick(cardId, toggledRarity) {
-            const currentAuthenticatedUserId = auth.currentUser?.uid;
-            console.log("Attempting to save with user ID:", currentAuthenticatedUserId);
-            
-            if (isViewingSharedPokedex) {
-                showMessage("You cannot edit a shared collection.", 'error');
-                return;
-            }
-            if (!currentAuthenticatedUserId) {
-                showMessage('Please log in to save your collection.', 'error');
-                console.error("Save failed: No authenticated user ID found.");
-                return;
-            }
-
-            // Find the card from the correct category
-            const categoryCards = allCardData[currentCategory];
-            const card = categoryCards.find(p => p.id === cardId);
-            if (!card) return;
-
-            const collectionPath = `artifacts/${appId}/users/${currentAuthenticatedUserId}/collected_cards`;
-            const cardRef = doc(db, collectionPath, cardId);
-
-            let currentRarities = collectedCards[cardId] || [];
-            let newRarities;
-
-            // Check if the toggled rarity is already in the array
-            if (currentRarities.includes(toggledRarity)) {
-                // Remove the rarity from the array
-                newRarities = currentRarities.filter(r => r !== toggledRarity);
-                showMessage(`Removed ${toggledRarity} for ${card.name}.`, 'info');
-            } else {
-                // Add the new rarity to the array
-                newRarities = [...currentRarities, toggledRarity];
-                showMessage(`Added ${toggledRarity} for ${card.name}.`, 'info');
-            }
-
-            try {
-                if (newRarities.length === 0) {
-                    // If no rarities are selected, remove the document
-                    console.log(`Deleting document at path: ${cardRef.path}`);
-                    await deleteDoc(cardRef);
-                } else {
-                    // Otherwise, update the document with the new rarities array
-                    console.log(`Updating document at path: ${cardRef.path} with rarities:`, newRarities);
-                    await setDoc(cardRef, {
-                        cardId: card.id,
-                        name: card.name,
-                        rarities: newRarities,
-                        category: currentCategory
-                    }, { merge: true });
-                }
-            } catch (e) {
-                console.error("Error updating document:", e);
-                showMessage(`Failed to update ${card.name}'s rarities.`, 'error');
-            }
-        }
-
-        // Handle sharing the pokedex
-        async function handleShareClick() {
-            const currentAuthenticatedUserId = auth.currentUser?.uid;
-            if (!currentAuthenticatedUserId) {
-                showMessage('You must be logged in to share your collection.', 'error');
-                return;
-            }
-
-            const privateCollectionRef = collection(db, `artifacts/${appId}/users/${currentAuthenticatedUserId}/collected_cards`);
-            const publicDocRef = doc(db, `artifacts/${appId}/public/data/shared_collection/${currentAuthenticatedUserId}`);
-            
-            try {
-                const snapshot = await getDocs(privateCollectionRef);
-                const cardsToShare = {};
-                snapshot.forEach(doc => {
-                    const data = doc.data();
-                    if (data.rarities && data.rarities.length > 0) {
-                        cardsToShare[data.cardId] = data.rarities;
-                    }
-                });
-                
-                await setDoc(publicDocRef, {
-                    userId: currentAuthenticatedUserId,
-                    cards: cardsToShare,
-                    lastUpdated: new Date()
-                });
-
-                shareableUrl = `${window.location.origin}${window.location.pathname}?userId=${currentAuthenticatedUserId}`;
-                showShareModal();
-                showMessage("Your collection is now shareable!");
-            } catch (error) {
-                console.error("Error sharing collection:", error);
-                showMessage("Failed to share your collection.", 'error');
-            }
-        }
-
-        // Render the card list to the UI with filters
-        function renderCardList() {
-            const container = document.getElementById('card-list');
-            const searchValue = document.getElementById('search-input').value.toLowerCase();
-            const selectedRarity = document.getElementById('rarity-filter').value;
-            const selectedGen = document.getElementById('generation-filter').value;
-
-            // Show/hide generation filter based on category
-            const genFilterContainer = document.getElementById('generation-filter-container');
-            if (currentCategory === 'pokemon') {
-                genFilterContainer.classList.remove('hidden');
-            } else {
-                genFilterContainer.classList.add('hidden');
-            }
-
-            const generationRange = selectedGen ? generationsData.find(gen => gen.name === selectedGen) : null;
-            const cardSource = allCardData[currentCategory];
-
-            const filteredCards = cardSource.filter(card => {
-                const cardId = card.id.split('-')[1]; // Get numeric ID for Pokemon
-                const matchesSearch = card.name.toLowerCase().includes(searchValue);
-                const matchesRarity = !selectedRarity || (collectedCards[card.id] && collectedCards[card.id].includes(selectedRarity));
-                const matchesGen = currentCategory !== 'pokemon' || !generationRange || (parseInt(cardId) >= generationRange.start && parseInt(cardId) <= generationRange.end);
-                return matchesSearch && matchesRarity && matchesGen;
-            });
-
-            if (filteredCards.length === 0) {
-                container.innerHTML = `<p class="text-gray-500 text-center py-10">No cards found matching your criteria.</p>`;
-                return;
-            }
-
-            container.innerHTML = '';
-            filteredCards.forEach(card => {
-                const currentRarities = collectedCards[card.id] || [];
-                const isCollected = currentRarities.length > 0;
-                
-                let mostRareSelectedColor = 'border-gray-200';
-                if (isCollected) {
-                    let maxRarityIndex = -1;
-                    let mostRareRarity = null;
-                    currentRarities.forEach(r => {
-                        const rarityIndex = RARITIES.indexOf(r);
-                        if (rarityIndex > maxRarityIndex) {
-                            maxRarityIndex = rarityIndex;
-                            mostRareRarity = r;
-                        }
-                    });
-                    mostRareSelectedColor = `${rarityColors[mostRareRarity]} border-4`;
-                }
-                
-                const cardElement = document.createElement('div');
-                cardElement.className = `pokemon-card p-4 bg-white rounded-lg shadow-md transition-all duration-300 transform hover:scale-105 ${mostRareSelectedColor}`;
-                
-                const cardIdDisplay = currentCategory === 'pokemon' ? `#${card.id.split('-')[1]}` : '';
-
-                cardElement.innerHTML = `
-                    <div class="flex items-center justify-between cursor-pointer" data-card-id="${card.id}">
-                        <div class="flex flex-col items-center flex-grow">
-                            <img src="${card.imageUrl}" alt="${card.name}" class="w-24 h-24 mb-2">
-                            <h3 class="text-lg font-semibold text-gray-800 capitalize mb-1 text-center">${card.name}</h3>
-                            <p class="text-sm text-gray-500">${cardIdDisplay}</p>
-                        </div>
-                        <svg class="w-6 h-6 text-gray-400 transition-transform duration-300" data-arrow-svg="${card.id}" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                        </svg>
-                    </div>
-                    <div id="rarity-container-${card.id}" class="mt-4 w-full grid grid-cols-2 gap-2 hidden">
-                        ${RARITIES.map(rarity => {
-                            const isSelected = currentRarities.includes(rarity);
-                            const selectedClass = isSelected ? `${rarityColors[rarity]} text-white` : 'bg-gray-200 text-gray-800';
-                            const disabledAttr = isViewingSharedPokedex ? 'disabled' : '';
-                            return `<button data-card-id="${card.id}" data-rarity="${rarity}" class="rarity-btn px-2 py-1 text-xs font-medium rounded-full transition-colors duration-200 ${selectedClass}" ${disabledAttr}>${raritySymbols[rarity]} ${rarity}</button>`;
-                        }).join('')}
-                    </div>
-                `;
-
-                // Add a click listener to the entire card to toggle the rarity container
-                cardElement.addEventListener('click', (e) => {
-                    // Check if the click was on a rarity button to prevent collapsing
-                    if (e.target.classList.contains('rarity-btn')) {
-                        return;
-                    }
-
-                    const rarityContainer = document.getElementById(`rarity-container-${card.id}`);
-                    const arrowSvg = document.querySelector(`[data-arrow-svg="${card.id}"]`);
-                    
-                    rarityContainer.classList.toggle('hidden');
-                    arrowSvg.classList.toggle('rotate-180');
-                });
-                
-                cardElement.querySelectorAll('.rarity-btn').forEach(button => {
-                    button.addEventListener('click', (e) => {
-                        handleRarityClick(e.target.dataset.cardId, e.target.dataset.rarity);
-                    });
-                });
-
-                container.appendChild(cardElement);
-            });
-        }
-        
-        // Function to switch between card categories
-        function switchCategory(category) {
-            currentCategory = category;
-            // Update active tab styles
-            document.querySelectorAll('.tab-btn').forEach(btn => {
-                if (btn.dataset.category === category) {
-                    btn.classList.add('bg-gray-200', 'text-gray-900');
-                    btn.classList.remove('text-gray-600', 'hover:bg-gray-100');
-                } else {
-                    btn.classList.remove('bg-gray-200', 'text-gray-900');
-                    btn.classList.add('text-gray-600', 'hover:bg-gray-100');
-                }
-            });
-            // Clear search input and re-render
-            document.getElementById('search-input').value = '';
-            document.getElementById('rarity-filter').value = '';
-            document.getElementById('generation-filter').value = '';
-            renderCardList();
-        }
-
-        // Event listeners for the search input and rarity/generation filters
-        document.addEventListener('DOMContentLoaded', () => {
-            const searchInput = document.getElementById('search-input');
-            const rarityFilter = document.getElementById('rarity-filter');
-            const generationFilter = document.getElementById('generation-filter');
-            
-            if (searchInput) searchInput.addEventListener('input', renderCardList);
-            if (rarityFilter) rarityFilter.addEventListener('change', renderCardList);
-            if (generationFilter) generationFilter.addEventListener('change', renderCardList);
-            
-            const logoutBtn = document.getElementById('logout-btn');
-            if (logoutBtn) {
-                logoutBtn.addEventListener('click', handleSignOut);
-            }
-            
-            const shareBtn = document.getElementById('share-btn');
-            if (shareBtn) {
-                shareBtn.addEventListener('click', handleShareClick);
-            }
-            
-            // Modal close button
-            const closeModalBtn = document.getElementById('close-modal');
-            if (closeModalBtn) {
-                closeModalBtn.addEventListener('click', () => {
-                    document.getElementById('share-modal').classList.add('hidden');
-                });
-            }
-
-            // Button to trigger anonymous sign-in
-            const startBtn = document.getElementById('start-btn');
-            if (startBtn) {
-                startBtn.addEventListener('click', handleStartCollecting);
-            }
-            
-            // Add listeners for tab buttons
-            document.querySelectorAll('.tab-btn').forEach(button => {
-                button.addEventListener('click', () => {
-                    switchCategory(button.dataset.category);
-                });
-            });
-
-            // Call the initialization function when the DOM is loaded
-            initializeAppAndAuth();
-        });
-
-        // Function to render the color key
-        function renderColorKey() {
-            const keyContainer = document.getElementById('color-key');
-            if (!keyContainer) return;
-            keyContainer.innerHTML = '';
-            RARITIES.forEach(rarity => {
-                const color = rarityColors[rarity];
-                const symbol = raritySymbols[rarity];
-                const keyItem = document.createElement('div');
-                keyItem.className = `flex items-center space-x-2 p-2 rounded-full ${color} text-white`;
-                keyItem.innerHTML = `
-                    <span class="text-sm font-semibold">${symbol}</span>
-                    <span class="text-xs font-medium">${rarity}</span>
-                `;
-                keyContainer.appendChild(keyItem);
-            });
-        }
-
-    </script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f3f4f6;
-        }
-        .card-list {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-            gap: 1rem;
-        }
-        .pokemon-card select {
-            border: 1px solid #d1d5db;
-        }
-        .pokemon-card select:focus {
-            border-color: #3b82f6;
-        }
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+      body {
+        font-family: 'Inter', sans-serif;
+      }
     </style>
+    <!-- Firebase SDK imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables provided by the environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // Initialize Firebase
+        let app, db, auth;
+        try {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+        } catch (e) {
+            console.error("Firebase initialization error: ", e);
+            document.getElementById('statusMessage').textContent = "Firebase is not configured. Please check your setup.";
+        }
+        
+        // Log in the user
+        let userId = null;
+        if (auth) {
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    userId = user.uid;
+                    document.getElementById('userIdDisplay').textContent = `User ID: ${userId}`;
+                    console.log("Authenticated user:", userId);
+                    // Start listening for data after successful auth
+                    startFirestoreListener();
+                } else {
+                    console.log("No user signed in. Attempting to sign in with custom token or anonymously...");
+                    try {
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (error) {
+                        console.error("Authentication failed:", error);
+                        document.getElementById('statusMessage').textContent = "Authentication failed.";
+                    }
+                }
+            });
+        }
+
+        // --- Data Collection & Display Functions ---
+
+        async function startCollecting() {
+            const statusMessage = document.getElementById('statusMessage');
+            const startButton = document.getElementById('startButton');
+            const dataContainer = document.getElementById('dataContainer');
+            const pokemonCollection = `artifacts/${appId}/users/${userId}/pokemon_data`;
+
+            if (!userId) {
+                statusMessage.textContent = "Please wait for authentication to complete...";
+                return;
+            }
+
+            statusMessage.textContent = 'Collecting Pokémon data...';
+            statusMessage.classList.remove('bg-gray-50', 'bg-green-100', 'border-gray-200', 'border-green-300');
+            statusMessage.classList.add('bg-blue-100', 'border-blue-300');
+            startButton.disabled = true;
+
+            try {
+                // Fetch a random number of Pokémon
+                const numberOfPokemonToFetch = Math.floor(Math.random() * 5) + 3; // Fetch 3-7 Pokémon
+                for (let i = 0; i < numberOfPokemonToFetch; i++) {
+                    const pokemonId = Math.floor(Math.random() * 150) + 1;
+                    const response = await fetch(`https://pokeapi.co/api/v2/pokemon/${pokemonId}`);
+                    const pokemonData = await response.json();
+
+                    const simplifiedPokemon = {
+                        name: pokemonData.name,
+                        id: pokemonData.id,
+                        imageUrl: pokemonData.sprites.front_default
+                    };
+
+                    await addDoc(collection(db, pokemonCollection), simplifiedPokemon);
+                    console.log(`Added ${simplifiedPokemon.name} to Firestore.`);
+                }
+                
+                statusMessage.textContent = `Collection of ${numberOfPokemonToFetch} Pokémon complete!`;
+                statusMessage.classList.remove('bg-blue-100', 'border-blue-300');
+                statusMessage.classList.add('bg-green-100', 'border-green-300');
+            } catch (error) {
+                console.error("Error during data collection:", error);
+                statusMessage.textContent = "An error occurred during collection.";
+                statusMessage.classList.remove('bg-blue-100');
+                statusMessage.classList.add('bg-red-100');
+            } finally {
+                startButton.disabled = false;
+            }
+        }
+
+        // Real-time listener for Firestore data
+        function startFirestoreListener() {
+            const pokemonCollection = `artifacts/${appId}/users/${userId}/pokemon_data`;
+            const dataContainer = document.getElementById('dataContainer');
+            const dataList = document.getElementById('dataList');
+            
+            onSnapshot(collection(db, pokemonCollection), (querySnapshot) => {
+                const pokemons = [];
+                querySnapshot.forEach((doc) => {
+                    pokemons.push({ id: doc.id, ...doc.data() });
+                });
+                
+                console.log("Current Pokémon in database:", pokemons);
+                dataList.innerHTML = '';
+                if (pokemons.length > 0) {
+                    dataContainer.classList.remove('hidden');
+                    pokemons.forEach(pokemon => {
+                        const pokemonCard = document.createElement('div');
+                        pokemonCard.className = 'flex items-center space-x-4 p-3 rounded-xl bg-gray-100 border border-gray-200 text-left';
+                        pokemonCard.innerHTML = `
+                            <img src="${pokemon.imageUrl}" alt="${pokemon.name}" class="w-12 h-12 rounded-full border-2 border-white shadow-md">
+                            <div>
+                                <div class="font-bold capitalize">${pokemon.name}</div>
+                                <div class="text-sm text-gray-500">ID: ${pokemon.id}</div>
+                            </div>
+                        `;
+                        dataList.appendChild(pokemonCard);
+                    });
+                } else {
+                    dataContainer.classList.add('hidden');
+                }
+            });
+        }
+        
+        // Expose function to the global scope for the button's onclick
+        window.startCollecting = startCollecting;
+    </script>
 </head>
-<body class="bg-gray-100 min-h-screen p-4 sm:p-6 lg:p-8">
+<body class="bg-gray-100 min-h-screen flex flex-col items-center p-4">
 
-    <!-- Loading Indicator -->
-    <div id="loading-indicator" class="flex flex-col items-center justify-center min-h-screen">
-        <div class="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500"></div>
-        <p id="loading-text" class="mt-4 text-gray-600">Loading app...</p>
-    </div>
+    <div class="bg-white p-8 rounded-2xl shadow-2xl max-w-lg w-full text-center space-y-6 md:mt-10">
+        <h1 class="text-3xl font-bold text-gray-800">Pokémon Data Collector</h1>
+        <p class="text-gray-600">Click the button below to fetch a few Pokémon and save them to your database.</p>
+        
+        <p id="userIdDisplay" class="text-sm text-gray-400"></p>
 
-    <!-- Error View -->
-    <div id="error-view" class="hidden flex flex-col items-center justify-center min-h-screen text-center">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-red-500 mb-4" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
-        </svg>
-        <h1 class="text-3xl font-bold text-red-700 mb-2">Initialization Error</h1>
-        <p id="error-message" class="text-md text-red-600 mb-6"></p>
-        <p class="text-sm text-gray-500">Please check the developer console for more details, or try refreshing the page.</p>
-    </div>
-
-    <!-- Initial Welcome/Logged Out View -->
-    <div id="initial-view" class="hidden flex flex-col items-center justify-center min-h-screen">
-        <h1 class="text-5xl font-extrabold text-gray-900 mb-4">Welcome to Pokedex Collector</h1>
-        <p class="text-xl text-gray-600 mb-6">Track your Pokémon card collection and share it with friends!</p>
-        <button id="start-btn" class="px-8 py-3 text-lg font-medium rounded-full text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200">
+        <button id="startButton" onclick="startCollecting()" class="w-full py-3 px-6 rounded-xl text-lg font-semibold text-white bg-blue-600 transition-transform duration-200 transform hover:scale-105 active:scale-100 focus:outline-none focus:ring-4 focus:ring-blue-300">
             Start Collecting
         </button>
-    </div>
 
-    <div id="app-container" class="max-w-6xl mx-auto w-full hidden">
-        <div class="flex items-center justify-between mb-8">
-            <div class="flex-grow text-center">
-                <h1 class="text-4xl sm:text-5xl font-extrabold text-gray-900 mb-2">Pokedex Collector</h1>
-                <p class="text-gray-600 text-lg">Keep track of your Pokémon card collection!</p>
-                <p id="user-id-display" class="text-sm text-gray-500 mt-2 break-all"></p>
-            </div>
-            <div class="flex space-x-2">
-                <button id="share-btn" class="hidden px-4 py-2 text-sm font-medium rounded-lg text-white bg-green-500 hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-all duration-200">
-                    Share Collection
-                </button>
-                <button id="logout-btn" class="hidden px-4 py-2 text-sm font-medium rounded-lg text-white bg-red-500 hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-all duration-200">
-                    Log Out
-                </button>
-            </div>
-        </div>
-
-        <div id="message-container" class="fixed top-4 right-4 z-50"></div>
-
-        <!-- Tabbed Interface -->
-        <div id="card-tabs" class="flex flex-wrap justify-center sm:justify-start space-x-2 mb-4">
-            <button data-category="pokemon" class="tab-btn px-4 py-2 text-sm font-medium rounded-full transition-colors duration-200 bg-gray-200 text-gray-900">Pokémon</button>
-            <button data-category="trainers" class="tab-btn px-4 py-2 text-sm font-medium rounded-full transition-colors duration-200 text-gray-600 hover:bg-gray-100">Trainers</button>
-            <button data-category="items" class="tab-btn px-4 py-2 text-sm font-medium rounded-full transition-colors duration-200 text-gray-600 hover:bg-gray-100">Items</button>
-            <button data-category="stadiums" class="tab-btn px-4 py-2 text-sm font-medium rounded-full transition-colors duration-200 text-gray-600 hover:bg-gray-100">Stadiums</button>
-        </div>
-
-        <div class="flex flex-col sm:flex-row gap-4 mb-6">
-            <input type="text" id="search-input" placeholder="Search for a card..." class="w-full sm:w-1/2 px-4 py-3 border border-gray-300 rounded-full shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200">
-            <select id="rarity-filter" class="w-full sm:w-1/4 px-4 py-3 border border-gray-300 rounded-full shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200">
-                <!-- Rarity options will be populated here by JavaScript -->
-            </select>
-            <div id="generation-filter-container" class="w-full sm:w-1/4">
-                <select id="generation-filter" class="w-full px-4 py-3 border border-gray-300 rounded-full shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200">
-                    <!-- Generation options will be populated here by JavaScript -->
-                </select>
-            </div>
-        </div>
-        
-        <!-- Rarity Color Key -->
-        <div class="mb-6 p-4 bg-white rounded-lg shadow-sm">
-            <h2 class="text-lg font-semibold text-gray-800 mb-4">Rarity Color Key</h2>
-            <div id="color-key" class="flex flex-wrap items-center justify-center gap-2">
-                <!-- Key items will be dynamically generated here -->
-            </div>
-        </div>
-
-        <div id="card-list" class="card-list">
-            <!-- Pokémon cards will be rendered here by JavaScript -->
-        </div>
-    </div>
-    
-    <!-- Share URL Modal -->
-    <div id="share-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-50">
-        <div class="relative p-5 bg-white w-full max-w-lg rounded-lg shadow-xl text-center">
-            <h3 class="text-lg font-semibold text-gray-900 mb-4">Your Shareable Pokedex URL</h3>
-            <p class="text-sm text-gray-600 mb-4">Copy this link to share your collection with others. They will be able to view your collection but not edit it.</p>
-            <input id="share-url-input" type="text" readonly class="w-full px-4 py-2 mb-4 text-sm text-gray-700 bg-gray-100 rounded-lg border-2 border-gray-300">
-            <div class="flex justify-center space-x-4">
-                <button id="close-modal" class="px-4 py-2 text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
-                    Close
-                </button>
-            </div>
+        <!-- This div will display messages to the user -->
+        <div id="statusMessage" class="mt-4 p-4 rounded-xl text-gray-700 bg-gray-50 border border-gray-200">
+            Awaiting input...
         </div>
     </div>
 
+    <!-- Section to display the collected Pokémon data -->
+    <div id="dataContainer" class="bg-white p-8 rounded-2xl shadow-2xl max-w-lg w-full space-y-4 mt-6 hidden">
+        <h2 class="text-2xl font-semibold text-gray-800 text-center">Your Collected Pokémon</h2>
+        <div id="dataList" class="space-y-3">
+            <!-- Pokémon cards will be inserted here by JavaScript -->
+        </div>
+    </div>
 </body>
 </html>
