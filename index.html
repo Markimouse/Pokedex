@@ -84,7 +84,7 @@
             </div>
             <div class="mt-4 flex flex-col sm:flex-row items-center justify-center space-y-2 sm:space-y-0 sm:space-x-4">
                 <input type="email" id="email-input" placeholder="Enter your email" class="w-full sm:w-64 p-2 rounded-lg bg-gray-200 text-gray-900 border-2 border-transparent focus:outline-none focus:border-yellow-700 transition-colors">
-                <button id="auth-button" class="w-full sm:w-auto bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded-full transition-colors">Login / Save Progress</button>
+                <button id="auth-button" class="w-full sm:w-auto bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded-full transition-colors">Send Sign-in Link</button>
             </div>
             <p id="auth-message" class="mt-2 text-red-600"></p>
         </header>
@@ -110,7 +110,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         setLogLevel('debug');
@@ -188,6 +188,26 @@
             }
         }
 
+        // Handle email link sign-in on page load
+        const handleEmailLinkLogin = async () => {
+            if (isSignInWithEmailLink(auth, window.location.href)) {
+                let email = window.localStorage.getItem('emailForSignIn');
+                if (!email) {
+                    email = prompt('Please provide your email for confirmation.');
+                }
+                
+                try {
+                    await signInWithEmailLink(auth, email, window.location.href);
+                    window.localStorage.removeItem('emailForSignIn');
+                    authMessage.textContent = 'Successfully logged in!';
+                    authMessage.style.color = '#10B981';
+                } catch (error) {
+                    console.error("Error signing in with email link:", error);
+                    authMessage.textContent = `Error signing in: ${error.message}`;
+                }
+            }
+        };
+
         // Use onAuthStateChanged as the single source of truth for authentication state.
         onAuthStateChanged(auth, (user) => {
             if (user) {
@@ -233,7 +253,6 @@
 
         authButton.addEventListener('click', async () => {
             const email = emailInput.value;
-            const password = 'temporarypassword123'; // Use a simple, temporary password for convenience
             authMessage.textContent = '';
             
             if (!email) {
@@ -242,22 +261,17 @@
             }
 
             try {
-                // First, try to sign in. If the user doesn't exist, create an account.
-                await signInWithEmailAndPassword(auth, email, password);
-                authMessage.textContent = 'Successfully logged in!';
+                const actionCodeSettings = {
+                    url: window.location.href,
+                    handleCodeInApp: true,
+                };
+
+                await sendSignInLinkToEmail(auth, email, actionCodeSettings);
+                window.localStorage.setItem('emailForSignIn', email);
+                authMessage.textContent = 'A sign-in link has been sent to your email. Check your inbox!';
                 authMessage.style.color = '#10B981';
             } catch (error) {
-                if (error.code === 'auth/user-not-found') {
-                    try {
-                        await createUserWithEmailAndPassword(auth, email, password);
-                        authMessage.textContent = 'New account created and logged in!';
-                        authMessage.style.color = '#10B981';
-                    } catch (createError) {
-                        authMessage.textContent = `Error creating account: ${createError.message}`;
-                    }
-                } else {
-                    authMessage.textContent = `Error logging in: ${error.message}`;
-                }
+                authMessage.textContent = `Error sending link: ${error.message}`;
             }
         });
 
@@ -474,8 +488,9 @@
             filterAndRenderPokemon();
         });
 
-        // Initial data fetch
+        // Initial data fetch and email link handling
         fetchAllPokemon();
+        handleEmailLinkLogin();
     </script>
 </body>
 </html>
