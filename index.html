@@ -61,6 +61,18 @@
         .pokemon-item:hover .tooltip {
             opacity: 1;
         }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body class="p-4 sm:p-8">
@@ -75,6 +87,16 @@
         </div>
     </div>
 
+    <div id="prompt-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 z-50 hidden items-center justify-center p-4 modal">
+        <div class="bg-gray-100 text-gray-900 rounded-lg p-6 shadow-xl w-full max-w-sm">
+            <p id="prompt-message" class="mb-4 text-center"></p>
+            <input type="text" id="prompt-input" class="w-full p-2 rounded-lg bg-gray-200 text-gray-900 border-2 border-transparent focus:outline-none focus:border-yellow-700 transition-colors">
+            <div class="flex justify-end space-x-4 mt-6">
+                <button id="prompt-ok-btn" class="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded-full transition-colors">OK</button>
+            </div>
+        </div>
+    </div>
+
     <div class="container mx-auto">
         <header class="text-center mb-8">
             <h1 class="text-4xl font-bold text-yellow-700">Pokédex</h1>
@@ -84,7 +106,10 @@
             </div>
             <div class="mt-4 flex flex-col sm:flex-row items-center justify-center space-y-2 sm:space-y-0 sm:space-x-4">
                 <input type="email" id="email-input" placeholder="Enter your email" class="w-full sm:w-64 p-2 rounded-lg bg-gray-200 text-gray-900 border-2 border-transparent focus:outline-none focus:border-yellow-700 transition-colors">
-                <button id="auth-button" class="w-full sm:w-auto bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded-full transition-colors">Send Sign-in Link</button>
+                <button id="auth-button" class="w-full sm:w-auto bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded-full transition-colors flex items-center justify-center space-x-2">
+                    <span id="auth-button-text">Send Sign-in Link</span>
+                    <div id="auth-loader" class="loader hidden"></div>
+                </button>
             </div>
             <p id="auth-message" class="mt-2 text-red-600"></p>
         </header>
@@ -128,7 +153,13 @@
         const clearFiltersBtn = document.getElementById('clear-filters-btn');
         const emailInput = document.getElementById('email-input');
         const authButton = document.getElementById('auth-button');
+        const authButtonText = document.getElementById('auth-button-text');
+        const authLoader = document.getElementById('auth-loader');
         const authMessage = document.getElementById('auth-message');
+        const promptModalOverlay = document.getElementById('prompt-modal-overlay');
+        const promptMessage = document.getElementById('prompt-message');
+        const promptInput = document.getElementById('prompt-input');
+        const promptOkBtn = document.getElementById('prompt-ok-btn');
 
         let allPokemon = [];
         let ownedRarities = {};
@@ -148,7 +179,8 @@
             'Hyper Rare': { icon: '★★★', color: '#FFD700', order: 7 },
         };
         
-        const firebaseConfig = {
+        // Use Canvas-provided Firebase config and auth token
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
             apiKey: "AIzaSyAhnSMCnVP1aB3i76Sbx1AIXKdzpva_428",
             authDomain: "pokedex-5df8e.firebaseapp.com",
             projectId: "pokedex-5df8e",
@@ -156,7 +188,7 @@
             messagingSenderId: "93348869700",
             appId: "1:93348869700:web:d0669fbd08ea16c3aeee11"
         };
-        
+
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
@@ -166,6 +198,23 @@
         modalCloseBtn.addEventListener('click', () => {
             modalOverlay.classList.add('hidden');
         });
+
+        // Custom prompt function to replace window.prompt()
+        function customPrompt(message) {
+            return new Promise(resolve => {
+                promptMessage.textContent = message;
+                promptInput.value = '';
+                promptModalOverlay.classList.remove('hidden');
+
+                const handleOk = () => {
+                    promptModalOverlay.classList.add('hidden');
+                    resolve(promptInput.value);
+                    promptOkBtn.removeEventListener('click', handleOk);
+                };
+
+                promptOkBtn.addEventListener('click', handleOk);
+            });
+        }
 
         async function retryFetch(url, options = {}, retries = 3, delay = 1000) {
             for (let i = 0; i < retries; i++) {
@@ -193,7 +242,7 @@
             if (isSignInWithEmailLink(auth, window.location.href)) {
                 let email = window.localStorage.getItem('emailForSignIn');
                 if (!email) {
-                    email = prompt('Please provide your email for confirmation.');
+                    email = await customPrompt('Please provide your email for confirmation.');
                 }
                 
                 try {
@@ -208,18 +257,14 @@
             }
         };
 
-        // Use onAuthStateChanged as the single source of truth for authentication state.
-        onAuthStateChanged(auth, (user) => {
+        onAuthStateChanged(auth, async (user) => {
             if (user) {
-                // User is signed in.
                 userInfoDisplay.textContent = `User: ${user.email || 'Anonymous'}`;
                 
-                // If a previous Firestore listener exists, unsubscribe from it.
                 if (unsubscribeFromFirestore) {
                     unsubscribeFromFirestore();
                 }
 
-                // Listen for changes in the user's collection.
                 const pokedexPath = `users/${user.uid}/pokedexEntries`;
                 const q = query(collection(db, pokedexPath));
                 
@@ -242,12 +287,15 @@
                 });
                 
             } else {
-                // User is not signed in.
                 userInfoDisplay.textContent = 'User: Not signed in';
-                // Try to sign in anonymously if no user is present.
-                signInAnonymously(auth).catch(error => {
-                    console.error("Error signing in anonymously:", error);
-                });
+                // Use the provided auth token if it exists, otherwise sign in anonymously
+                if (typeof __initial_auth_token !== 'undefined') {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    signInAnonymously(auth).catch(error => {
+                        console.error("Error signing in anonymously:", error);
+                    });
+                }
             }
         });
 
@@ -259,6 +307,10 @@
                 authMessage.textContent = 'Please enter an email address.';
                 return;
             }
+
+            authButton.disabled = true;
+            authButtonText.classList.add('hidden');
+            authLoader.classList.remove('hidden');
 
             try {
                 const actionCodeSettings = {
@@ -272,6 +324,10 @@
                 authMessage.style.color = '#10B981';
             } catch (error) {
                 authMessage.textContent = `Error sending link: ${error.message}`;
+            } finally {
+                authButton.disabled = false;
+                authButtonText.classList.remove('hidden');
+                authLoader.classList.add('hidden');
             }
         });
 
@@ -298,7 +354,6 @@
                     imageUrl: `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${index + 1}.png`
                 }));
 
-                // Filter out Pokémon from "Deoxys-Attack" onwards
                 const deoxysAttackIndex = pokemonData.findIndex(p => p.name === "Deoxys-Attack");
                 if (deoxysAttackIndex !== -1) {
                     pokemonData = pokemonData.slice(0, deoxysAttackIndex);
