@@ -193,7 +193,20 @@
         }
 
         async function main() {
-            const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+            let firebaseConfig = {};
+            if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                try {
+                    firebaseConfig = JSON.parse(__firebase_config);
+                } catch (e) {
+                    console.error("Failed to parse Firebase config:", e);
+                    showMessageBox("Failed to load Firebase configuration. Please refresh.", true);
+                    return; 
+                }
+            } else {
+                showMessageBox("Firebase configuration not found.", true);
+                return;
+            }
+
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
             try {
