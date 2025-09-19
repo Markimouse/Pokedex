@@ -152,6 +152,7 @@
         let ownedRarities = {};
         let selectedRarityFilters = new Set();
         let pokemonNameFilter = '';
+        let isAuthReady = false;
 
         const POKEAPI_URL = 'https://pokeapi.co/api/v2/pokemon?limit=10000';
 
@@ -254,6 +255,11 @@
                     document.body.appendChild(messageBox);
                     setTimeout(() => messageBox.remove(), 3000);
                 });
+
+                if (!isAuthReady) {
+                    await fetchAllPokemon();
+                    isAuthReady = true;
+                }
                 
             } else {
                 userInfoDisplay.textContent = 'User: Not signed in';
@@ -479,9 +485,6 @@
             renderRarityFilters(); // Re-render to uncheck checkboxes
             filterAndRenderPokemon();
         });
-
-        // Initial data fetch and email link handling
-        fetchAllPokemon();
     </script>
 </body>
 </html>
