@@ -78,7 +78,15 @@
     <div class="container mx-auto">
         <header class="text-center mb-8">
             <h1 class="text-4xl font-bold text-yellow-700">Pokédex</h1>
-            <p id="user-id-display" class="mt-2 text-sm text-gray-600 font-mono"></p>
+            <div class="flex items-center justify-center space-x-4 mt-4 text-sm font-semibold text-gray-600">
+                <p id="user-info-display"></p>
+                <p id="completion-rate-display"></p>
+            </div>
+            <div class="mt-4 flex flex-col sm:flex-row items-center justify-center space-y-2 sm:space-y-0 sm:space-x-4">
+                <input type="email" id="email-input" placeholder="Enter your email" class="w-full sm:w-64 p-2 rounded-lg bg-gray-200 text-gray-900 border-2 border-transparent focus:outline-none focus:border-yellow-700 transition-colors">
+                <button id="auth-button" class="w-full sm:w-auto bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded-full transition-colors">Login / Save Progress</button>
+            </div>
+            <p id="auth-message" class="mt-2 text-red-600"></p>
         </header>
 
         <div class="mb-8">
@@ -102,14 +110,15 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         setLogLevel('debug');
 
         const pokemonListContainer = document.getElementById('pokemon-list');
         const loadingIndicator = document.getElementById('loading');
-        const userIdDisplay = document.getElementById('user-id-display');
+        const userInfoDisplay = document.getElementById('user-info-display');
+        const completionRateDisplay = document.getElementById('completion-rate-display');
         const modalOverlay = document.getElementById('modal-overlay');
         const modalTitle = document.getElementById('modal-title');
         const rarityOptionsContainer = document.getElementById('rarity-options');
@@ -117,6 +126,9 @@
         const pokemonSearchInput = document.getElementById('pokemon-search');
         const rarityFiltersContainer = document.getElementById('rarity-filters');
         const clearFiltersBtn = document.getElementById('clear-filters-btn');
+        const emailInput = document.getElementById('email-input');
+        const authButton = document.getElementById('auth-button');
+        const authMessage = document.getElementById('auth-message');
 
         let allPokemon = [];
         let ownedRarities = {};
@@ -178,10 +190,13 @@
 
         onAuthStateChanged(auth, async (user) => {
             if (user) {
-                const userId = user.uid;
-                userIdDisplay.textContent = `User ID: ${userId}`;
+                userInfoDisplay.textContent = `User: ${user.email || 'Anonymous'}`;
                 
-                const pokedexPath = `users/${userId}/pokedexEntries`;
+                if (unsubscribeFromFirestore) {
+                    unsubscribeFromFirestore();
+                }
+
+                const pokedexPath = `users/${user.uid}/pokedexEntries`;
                 const q = query(collection(db, pokedexPath));
                 
                 unsubscribeFromFirestore = onSnapshot(q, (snapshot) => {
@@ -191,6 +206,7 @@
                         newOwnedRarities[doc.id] = data.rarities;
                     });
                     ownedRarities = newOwnedRarities;
+                    updateCompletionRate();
                     filterAndRenderPokemon();
                 }, (error) => {
                     console.error("Error listening to Firestore:", error);
@@ -201,13 +217,50 @@
                     setTimeout(() => messageBox.remove(), 3000);
                 });
                 
-                fetchAllPokemon();
             } else {
                 signInAnonymously(auth).catch(error => {
                     console.error("Error signing in anonymously:", error);
                 });
             }
         });
+
+        authButton.addEventListener('click', async () => {
+            const email = emailInput.value;
+            const password = 'temporarypassword123'; // Use a simple, temporary password for convenience
+            authMessage.textContent = '';
+            
+            if (!email) {
+                authMessage.textContent = 'Please enter an email address.';
+                return;
+            }
+
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+                authMessage.textContent = 'Successfully logged in!';
+                authMessage.style.color = '#10B981';
+            } catch (error) {
+                if (error.code === 'auth/user-not-found') {
+                    try {
+                        await createUserWithEmailAndPassword(auth, email, password);
+                        authMessage.textContent = 'New account created and logged in!';
+                        authMessage.style.color = '#10B981';
+                    } catch (createError) {
+                        authMessage.textContent = `Error creating account: ${createError.message}`;
+                    }
+                } else {
+                    authMessage.textContent = `Error logging in: ${error.message}`;
+                }
+            }
+        });
+
+        function updateCompletionRate() {
+            const ownedCount = Object.keys(ownedRarities).length;
+            const totalCount = allPokemon.length;
+            if (totalCount > 0) {
+                const percentage = ((ownedCount / totalCount) * 100).toFixed(2);
+                completionRateDisplay.textContent = `Completion: ${ownedCount}/${totalCount} (${percentage}%)`;
+            }
+        }
 
         async function fetchAllPokemon() {
             loadingIndicator.classList.remove('hidden');
@@ -216,11 +269,21 @@
             try {
                 const response = await retryFetch(POKEAPI_URL);
                 const data = await response.json();
-                allPokemon = data.results.map((p, index) => ({
+                
+                let pokemonData = data.results.map((p, index) => ({
                     name: p.name.charAt(0).toUpperCase() + p.name.slice(1),
                     id: index + 1,
                     imageUrl: `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${index + 1}.png`
                 }));
+
+                // Filter out Pokémon from "Deoxys-Attack" onwards
+                const deoxysAttackIndex = pokemonData.findIndex(p => p.name === "Deoxys-Attack");
+                if (deoxysAttackIndex !== -1) {
+                    pokemonData = pokemonData.slice(0, deoxysAttackIndex);
+                }
+
+                allPokemon = pokemonData;
+
                 renderRarityFilters();
                 filterAndRenderPokemon();
             } catch (error) {
@@ -402,6 +465,9 @@
             renderRarityFilters(); // Re-render to uncheck checkboxes
             filterAndRenderPokemon();
         });
+
+        // Initial data fetch
+        fetchAllPokemon();
     </script>
 </body>
 </html>
