@@ -25,7 +25,6 @@
         }
         .pokemon-item.owned {
             background-color: #2a2a2a;
-            border-color: #4CAF50;
         }
         .modal {
             transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
@@ -128,13 +127,13 @@
 
         // Mapped rarity names to their symbols and colors
         const RARITY_MAP = {
-            'Common': { icon: '●', color: '#A0A0A0' },
-            'Uncommon': { icon: '◆', color: '#6C757D' },
-            'Double Rare': { icon: '★★', color: '#000000' },
-            'Ultra Rare': { icon: '★★', color: '#C0C0C0' },
-            'Illustration Rare': { icon: '★', color: '#FFD700' },
-            'Special Illustration Rare': { icon: '★★', color: '#DAA520' },
-            'Hyper Rare': { icon: '★★★', color: '#FFD700' },
+            'Common': { icon: '●', color: '#A0A0A0', order: 1 },
+            'Uncommon': { icon: '◆', color: '#6C757D', order: 2 },
+            'Double Rare': { icon: '★★', color: '#000000', order: 3 },
+            'Ultra Rare': { icon: '★★', color: '#C0C0C0', order: 4 },
+            'Illustration Rare': { icon: '★', color: '#FFD700', order: 5 },
+            'Special Illustration Rare': { icon: '★★', color: '#DAA520', order: 6 },
+            'Hyper Rare': { icon: '★★★', color: '#FFD700', order: 7 },
         };
 
         const firebaseConfig = {
@@ -289,8 +288,19 @@
                 const owned = ownedRarities[pokemon.name] || [];
                 const isOwned = owned.length > 0;
                 
+                let highestRarityColor = 'transparent';
+                if (isOwned) {
+                    const highestRarity = owned.reduce((highest, current) => {
+                        const currentOrder = RARITY_MAP[current]?.order || 0;
+                        const highestOrder = RARITY_MAP[highest]?.order || 0;
+                        return currentOrder > highestOrder ? current : highest;
+                    }, owned[0]);
+                    highestRarityColor = RARITY_MAP[highestRarity]?.color || 'transparent';
+                }
+
                 const pokemonElement = document.createElement('div');
-                pokemonElement.className = `pokemon-item flex flex-col items-center p-4 bg-gray-800 rounded-lg shadow-md transition-all relative ${isOwned ? 'owned' : ''}`;
+                pokemonElement.className = `pokemon-item flex flex-col items-center p-4 rounded-lg shadow-md transition-all relative ${isOwned ? 'owned' : ''}`;
+                pokemonElement.style.borderColor = highestRarityColor;
                 
                 // Add rarity dots
                 const rarityDotContainer = document.createElement('div');
@@ -326,7 +336,7 @@
             modalTitle.textContent = pokemonName;
             rarityOptionsContainer.innerHTML = '';
             
-            const rarities = Object.keys(RARITY_MAP);
+            const rarities = Object.keys(RARITY_MAP).sort((a, b) => RARITY_MAP[a].order - RARITY_MAP[b].order);
             const currentOwnedRarities = ownedRarities[pokemonName] || [];
 
             if (rarities.length === 0) {
