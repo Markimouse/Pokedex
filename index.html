@@ -87,15 +87,7 @@
         </div>
     </div>
 
-    <div id="prompt-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 z-50 hidden items-center justify-center p-4 modal">
-        <div class="bg-gray-100 text-gray-900 rounded-lg p-6 shadow-xl w-full max-w-sm">
-            <p id="prompt-message" class="mb-4 text-center"></p>
-            <input type="text" id="prompt-input" class="w-full p-2 rounded-lg bg-gray-200 text-gray-900 border-2 border-transparent focus:outline-none focus:border-yellow-700 transition-colors">
-            <div class="flex justify-end space-x-4 mt-6">
-                <button id="prompt-ok-btn" class="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded-full transition-colors">OK</button>
-            </div>
-        </div>
-    </div>
+    <div id="message-box" class="fixed bottom-4 left-1/2 -translate-x-1/2 bg-red-600 text-white py-2 px-4 rounded-full shadow-lg hidden"></div>
 
     <div class="container mx-auto">
         <header class="text-center mb-8">
@@ -143,17 +135,15 @@
         const pokemonSearchInput = document.getElementById('pokemon-search');
         const rarityFiltersContainer = document.getElementById('rarity-filters');
         const clearFiltersBtn = document.getElementById('clear-filters-btn');
-        const promptModalOverlay = document.getElementById('prompt-modal-overlay');
-        const promptMessage = document.getElementById('prompt-message');
-        const promptInput = document.getElementById('prompt-input');
-        const promptOkBtn = document.getElementById('prompt-ok-btn');
+        const messageBox = document.getElementById('message-box');
 
         let allPokemon = [];
         let ownedRarities = {};
         let selectedRarityFilters = new Set();
         let pokemonNameFilter = '';
-        let isAuthReady = false;
         let isPokemonLoaded = false;
+        let db, auth;
+        let unsubscribeFromFirestore = null;
 
         const POKEAPI_URL = 'https://pokeapi.co/api/v2/pokemon?limit=10000';
 
@@ -168,44 +158,19 @@
             'Hyper Rare': { icon: '★★★', color: '#FFD700', order: 7 },
         };
         
-        // Use Canvas-provided Firebase config and auth token
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-            apiKey: "AIzaSyAhnSMCnVP1aB3i76Sbx1AIXKdzpva_428",
-            authDomain: "pokedex-5df8e.firebaseapp.com",
-            projectId: "pokedex-5df8e",
-            storageBucket: "pokedex-5df8e.firebasestorage.app",
-            messagingSenderId: "93348869700",
-            appId: "1:93348869700:web:d0669fbd08ea16c3aeee11"
-        };
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-
-        let unsubscribeFromFirestore = null;
-
         modalCloseBtn.addEventListener('click', () => {
             modalOverlay.classList.add('hidden');
         });
 
-        // Custom prompt function to replace window.prompt()
-        function customPrompt(message) {
-            return new Promise(resolve => {
-                promptMessage.textContent = message;
-                promptInput.value = '';
-                promptModalOverlay.classList.remove('hidden');
-
-                const handleOk = () => {
-                    promptModalOverlay.classList.add('hidden');
-                    resolve(promptInput.value);
-                    promptOkBtn.removeEventListener('click', handleOk);
-                };
-
-                promptOkBtn.addEventListener('click', handleOk);
-            });
+        function showMessageBox(message, isError = true) {
+            messageBox.textContent = message;
+            messageBox.className = `fixed bottom-4 left-1/2 -translate-x-1/2 py-2 px-4 rounded-full shadow-lg transition-all ${isError ? 'bg-red-600' : 'bg-green-600'}`;
+            messageBox.classList.remove('hidden');
+            setTimeout(() => {
+                messageBox.classList.add('hidden');
+            }, 3000);
         }
-
+        
         async function retryFetch(url, options = {}, retries = 3, delay = 1000) {
             for (let i = 0; i < retries; i++) {
                 try {
@@ -227,53 +192,69 @@
             }
         }
 
-        onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                userInfoDisplay.textContent = `User ID: ${user.uid}`;
-                
-                if (unsubscribeFromFirestore) {
-                    unsubscribeFromFirestore();
-                }
+        async function main() {
+            const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
-                const pokedexPath = `artifacts/${appId}/users/${user.uid}/pokedexEntries`;
-                const q = query(collection(db, pokedexPath));
-                
-                unsubscribeFromFirestore = onSnapshot(q, (snapshot) => {
-                    const newOwnedRarities = {};
-                    snapshot.forEach(doc => {
-                        const data = doc.data();
-                        newOwnedRarities[doc.id] = data.rarities;
-                    });
-                    ownedRarities = newOwnedRarities;
-                    updateCompletionRate();
-                    if (isPokemonLoaded) {
-                        filterAndRenderPokemon();
-                    }
-                }, (error) => {
-                    console.error("Error listening to Firestore:", error);
-                    const messageBox = document.createElement('div');
-                    messageBox.textContent = "Failed to load your collection. Please try again.";
-                    messageBox.className = "fixed bottom-4 left-1/2 -translate-x-1/2 bg-red-600 text-white py-2 px-4 rounded-full shadow-lg";
-                    document.body.appendChild(messageBox);
-                    setTimeout(() => messageBox.remove(), 3000);
-                });
-
-                if (!isAuthReady) {
-                    await fetchAllPokemon();
-                    isAuthReady = true;
-                }
-                
-            } else {
-                userInfoDisplay.textContent = 'User: Not signed in';
-                if (typeof __initial_auth_token !== 'undefined') {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    signInAnonymously(auth).catch(error => {
-                        console.error("Error signing in anonymously:", error);
-                    });
-                }
+            try {
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+            } catch (error) {
+                showMessageBox("Failed to initialize Firebase. Check your credentials.", true);
+                console.error("Firebase initialization error:", error);
+                return;
             }
-        });
+
+            try {
+                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Firebase sign-in error:", error);
+                showMessageBox("Failed to sign in. Please refresh the page.", true);
+                return;
+            }
+
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    userInfoDisplay.textContent = `User ID: ${user.uid}`;
+                    
+                    if (unsubscribeFromFirestore) {
+                        unsubscribeFromFirestore();
+                    }
+
+                    const pokedexPath = `artifacts/${appId}/users/${user.uid}/pokedexEntries`;
+                    const q = query(collection(db, pokedexPath));
+                    
+                    unsubscribeFromFirestore = onSnapshot(q, (snapshot) => {
+                        const newOwnedRarities = {};
+                        snapshot.forEach(doc => {
+                            const data = doc.data();
+                            newOwnedRarities[doc.id] = data.rarities;
+                        });
+                        ownedRarities = newOwnedRarities;
+                        updateCompletionRate();
+                        if (isPokemonLoaded) {
+                            filterAndRenderPokemon();
+                        }
+                    }, (error) => {
+                        console.error("Error listening to Firestore:", error);
+                        showMessageBox("Failed to load your collection. Please try again.", true);
+                    });
+
+                    await fetchAllPokemon();
+                    
+                } else {
+                    userInfoDisplay.textContent = 'User: Not signed in';
+                }
+            });
+        }
+        
+        main();
 
         function updateCompletionRate() {
             const ownedCount = Object.keys(ownedRarities).length;
@@ -308,7 +289,6 @@
                 isPokemonLoaded = true;
 
                 renderRarityFilters();
-                // We no longer call filterAndRenderPokemon() here. The onSnapshot listener will handle the initial render.
             } catch (error) {
                 console.error('Failed to fetch Pokémon data:', error);
                 loadingIndicator.textContent = 'Failed to load Pokémon data. Please try again later.';
@@ -419,6 +399,11 @@
         }
 
         async function showRarityModal(pokemonName) {
+            if (!auth.currentUser || !db) {
+                showMessageBox("App is still loading. Please wait a moment.", true);
+                return;
+            }
+
             modalTitle.textContent = pokemonName;
             rarityOptionsContainer.innerHTML = '';
             
@@ -456,19 +441,15 @@
                     
                     try {
                         if (newRarities.size > 0) {
-                            await setDoc(doc(db, `artifacts/${appId}/users/${auth.currentUser.uid}/pokedexEntries`, pokemonName), {
+                            await setDoc(doc(db, `artifacts/${db.app.options.projectId}/users/${auth.currentUser.uid}/pokedexEntries`, pokemonName), {
                                 rarities: [...newRarities]
                             });
                         } else {
-                            await deleteDoc(doc(db, `artifacts/${appId}/users/${auth.currentUser.uid}/pokedexEntries`, pokemonName));
+                            await deleteDoc(doc(db, `artifacts/${db.app.options.projectId}/users/${auth.currentUser.uid}/pokedexEntries`, pokemonName));
                         }
                     } catch (error) {
                         console.error("Error updating rarities:", error);
-                        const messageBox = document.createElement('div');
-                        messageBox.textContent = "Failed to update your collection. Please try again.";
-                        messageBox.className = "fixed bottom-4 left-1/2 -translate-x-1/2 bg-red-600 text-white py-2 px-4 rounded-full shadow-lg";
-                        document.body.appendChild(messageBox);
-                        setTimeout(() => messageBox.remove(), 3000);
+                        showMessageBox("Failed to update your collection. Please try again.", true);
                     }
                 });
             });
