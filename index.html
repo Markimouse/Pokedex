@@ -135,7 +135,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         setLogLevel('debug');
@@ -188,6 +188,7 @@
             messagingSenderId: "93348869700",
             appId: "1:93348869700:web:d0669fbd08ea16c3aeee11"
         };
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
@@ -265,7 +266,7 @@
                     unsubscribeFromFirestore();
                 }
 
-                const pokedexPath = `users/${user.uid}/pokedexEntries`;
+                const pokedexPath = `artifacts/${appId}/users/${user.uid}/pokedexEntries`;
                 const q = query(collection(db, pokedexPath));
                 
                 unsubscribeFromFirestore = onSnapshot(q, (snapshot) => {
@@ -313,12 +314,7 @@
             authLoader.classList.remove('hidden');
 
             try {
-                const actionCodeSettings = {
-                    url: window.location.href,
-                    handleCodeInApp: true,
-                };
-
-                await sendSignInLinkToEmail(auth, email, actionCodeSettings);
+                await sendSignInLinkToEmail(auth, email);
                 window.localStorage.setItem('emailForSignIn', email);
                 authMessage.textContent = 'A sign-in link has been sent to your email. Check your inbox!';
                 authMessage.style.color = '#10B981';
@@ -510,11 +506,11 @@
                     
                     try {
                         if (newRarities.size > 0) {
-                            await setDoc(doc(db, `users/${auth.currentUser.uid}/pokedexEntries`, pokemonName), {
+                            await setDoc(doc(db, `artifacts/${appId}/users/${auth.currentUser.uid}/pokedexEntries`, pokemonName), {
                                 rarities: [...newRarities]
                             });
                         } else {
-                            await deleteDoc(doc(db, `users/${auth.currentUser.uid}/pokedexEntries`, pokemonName));
+                            await deleteDoc(doc(db, `artifacts/${appId}/users/${auth.currentUser.uid}/pokedexEntries`, pokemonName));
                         }
                     } catch (error) {
                         console.error("Error updating rarities:", error);
